@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Syllefar's Prestige Cultivation RPG</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #0d0b10;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      color: #ccc;
+    }
+
+    /* ── Loading screen ── */
+    #loader {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #0d0b10;
+      z-index: 100;
+      gap: 1.2rem;
+      transition: opacity 0.6s ease;
+    }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+
+    #loader-title {
+      font-size: 1.4rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #c8a060;
+      text-shadow: 0 0 20px #c8a06088;
+    }
+
+    #loader-bar-wrap {
+      width: 280px; height: 6px;
+      background: #2a2535;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    #loader-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #7a44cc, #c8a060);
+      border-radius: 999px;
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+    #loader-pct {
+      font-size: 0.78rem;
+      color: #6a6075;
+      letter-spacing: 0.12em;
+    }
+
+    #loader-error {
+      display: none;
+      background: #3a1a22;
+      border: 1px solid #7a2233;
+      border-radius: 0.4rem;
+      padding: 0.8rem 1.2rem;
+      font-size: 0.85rem;
+      color: #e08888;
+      max-width: 400px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* ── Back button ── */
+    #back-btn {
+      position: fixed;
+      top: 12px; left: 14px;
+      background: rgba(20,16,28,0.85);
+      border: 1px solid #3a2f50;
+      border-radius: 6px;
+      color: #a090cc;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      padding: 5px 12px;
+      cursor: pointer;
+      z-index: 200;
+      text-decoration: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    #back-btn:hover { background: #2a1f3a; color: #d4b8ff; }
+
+    /* ── Godot canvas ── */
+    canvas#canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+    }
+    canvas#canvas:focus { outline: none; }
+  </style>
+</head>
+<body>
+
+  <a id="back-btn" href="../game/index.html">← Back to UI</a>
+
+  <!-- Custom loading screen -->
+  <div id="loader">
+    <div id="loader-title">Syllefar’s Cultivation RPG</div>
+    <div id="loader-bar-wrap"><div id="loader-bar"></div></div>
+    <div id="loader-pct">Loading…</div>
+    <div id="loader-error"></div>
+  </div>
+
+  <canvas id="canvas">Your browser does not support the canvas element.</canvas>
+
+  <noscript>JavaScript is required to run this game.</noscript>
+
+  <script src="SyllesCultivationRPG.js"></script>
+  <script>
+    const GODOT_CONFIG = {
+      args: [],
+      canvasResizePolicy: 2,
+      emscriptenPoolSize: 8,
+      ensureCrossOriginIsolationHeaders: true,
+      executable: 'SyllesCultivationRPG',
+      experimentalVK: false,
+      fileSizes: {
+        'SyllesCultivationRPG.pck':  29564,
+        'SyllesCultivationRPG.wasm': 35749181
+      },
+      focusCanvas: true,
+      gdextensionLibs: [],
+      godotPoolSize: 4
+    };
+    const GODOT_THREADS_ENABLED = false;
+    const engine = new Engine(GODOT_CONFIG);
+
+    const loaderEl  = document.getElementById('loader');
+    const barEl     = document.getElementById('loader-bar');
+    const pctEl     = document.getElementById('loader-pct');
+    const errorEl   = document.getElementById('loader-error');
+
+    function showError(msg) {
+      errorEl.style.display = 'block';
+      errorEl.textContent   = msg;
+      pctEl.textContent     = 'Failed to load.';
+    }
+
+    const missing = Engine.getMissingFeatures({ threads: GODOT_THREADS_ENABLED });
+    if (missing.length) {
+      showError('Your browser is missing required features:\n' + missing.join(', '));
+    } else {
+      engine.startGame({
+        onProgress(current, total) {
+          if (total > 0) {
+            const pct = Math.round((current / total) * 100);
+            barEl.style.width = pct + '%';
+            pctEl.textContent = pct + '%';
+          } else {
+            barEl.style.width = '100%';
+            barEl.style.animation = 'none';
+          }
+        }
+      }).then(() => {
+        loaderEl.classList.add('hidden');
+        setTimeout(() => loaderEl.remove(), 700);
+      }).catch(err => {
+        console.error(err);
+        showError(err instanceof Error ? err.message : String(err));
+      });
+    }
+  </script>
+</body>
+</html>
