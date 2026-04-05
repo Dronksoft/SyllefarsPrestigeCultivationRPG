@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Syllefar's Prestige Cultivation RPG</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <!-- Phaser 3 -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.87.0/dist/phaser.min.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style-ui.css">
+  <link rel="stylesheet" href="style-engine.css">
+
+  <style>
+    /* Phaser canvas sits at the very bottom */
+    #game-container { position: fixed; inset: 0; z-index: 0; }
+    #game-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* step3 HUD layer sits above Phaser */
+    #hud-layer { z-index: 10; }
+
+    /* Monster HP bars float above Phaser, below panels */
+    #monster-bars { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+    .monster-hpbar { position: absolute; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 2px; transform: translate(-50%,-100%); }
+    .monster-name-label { font-size: 10px; color: #d4b896; text-shadow: 0 1px 3px #000; white-space: nowrap; }
+    .monster-hp-track { width: 50px; height: 5px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+    .monster-hp-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg,#6b1a1a,#c0364a); transition: width 0.1s; }
+
+    /* Kill feed */
+    #kill-feed { position: fixed; bottom: 120px; right: 16px; pointer-events: none; display: flex; flex-direction: column-reverse; gap: 4px; max-width: 200px; z-index: 20; }
+    .kill-entry { font-size: 11px; color: #c8973a; text-align: right; animation: killFadeIn 0.2s ease-out, killFadeOut 0.4s ease-in 2.6s forwards; }
+    @keyframes killFadeIn  { from { opacity:0; transform:translateX(8px); } to { opacity:1; } }
+    @keyframes killFadeOut { from { opacity:1; } to { opacity:0; } }
+
+    /* Level-up flash */
+    #levelup-flash { position: fixed; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center; z-index: 250; opacity: 0; transition: opacity 0.3s; }
+    #levelup-flash.show { opacity: 1; }
+    #levelup-flash .levelup-text { font-family: 'Cormorant Garamond', serif; font-size: clamp(2rem,6vw,4rem); color: #e8b84b; text-shadow: 0 0 30px rgba(230,180,60,0.8); animation: levelupPulse 0.6s ease-out; }
+    @keyframes levelupPulse { 0% { transform:scale(0.6); opacity:0; } 60% { transform:scale(1.1); opacity:1; } 100% { transform:scale(1); opacity:1; } }
+
+    /* Death overlay */
+    #death-overlay { position: fixed; inset: 0; background: rgba(80,0,0,0.75); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px; z-index: 260; backdrop-filter: blur(4px); }
+    #death-overlay.show { display: flex; }
+    #death-overlay h2 { font-family: 'Cormorant Garamond', serif; font-size: clamp(2.5rem,7vw,5rem); color: #c0364a; text-shadow: 0 0 40px rgba(180,30,50,0.6); }
+    #death-overlay p { color: #7a6248; font-size: 14px; }
+    #respawn-btn { margin-top: 8px; padding: 8px 32px; background: #8b1a1a; border: 1px solid #c0364a; border-radius: 6px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; letter-spacing: 0.06em; text-transform: uppercase; }
+    #respawn-btn:hover { background: #c0364a; }
+
+    /* Area fade */
+    #area-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 270; transition: opacity 0.5s; }
+    #area-fade.fade-in { opacity: 1; pointer-events: auto; }
+
+    /* Debug */
+    #debug-overlay { position: fixed; bottom: 16px; left: 16px; background: rgba(0,0,0,0.75); color: #00ff00; font: 10px/1.6 monospace; padding: 4px 8px; pointer-events: none; white-space: pre; z-index: 99; border-radius: 4px; }
+
+    /* Engine-level prestige banner (different from #prestige-indicator) */
+    #prestige-banner { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); padding: 8px 24px; background: linear-gradient(135deg,rgba(200,150,50,0.15),rgba(120,80,200,0.15)); border: 1px solid #c8973a; border-radius: 10px; font-family: 'Cormorant Garamond', serif; font-size: 15px; color: #e8b84b; pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 220; }
+    #prestige-banner.show { opacity: 1; }
+
+    /* Cooldown overlay visibility fix */
+    .cooldown-overlay { display: flex !important; }
+    .cooldown-overlay:empty { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- PHASER CANVAS (z-index: 0) -->
+<div id="game-container"></div>
+
+<!-- FLOATING COMBAT TEXT -->
+<div id="fct-layer"></div>
+
+<!-- HUD LAYER (step3 UI, z-index: 10+) -->
+<div id="hud-layer">
+  <div id="hud-top">
+    <div id="area-name">🏔️ <span id="area-name-text">The Ashen Hollow</span></div>
+    <div id="minimap-stub" title="Minimap"></div>
+  </div>
+
+  <div id="prestige-indicator" onclick="togglePanel('prestige')">⚜ PRESTIGE AWAITS — PRESS P ⚜</div>
+
+  <div id="hud-bottom">
+    <div id="hud-vitals">
+      <div id="hud-portrait" onclick="togglePanel('character')" title="Character [C]">
+        <div class="portrait-bg"></div>
+        <div class="portrait-icon">🗡️</div>
+        <div class="portrait-level" id="portrait-level">Lv.1</div>
+        <div class="portrait-origin" id="portrait-origin">MONK</div>
+      </div>
+      <div id="hud-bars">
+        <div class="hud-bar-row">
+          <span class="hud-bar-label">HP</span>
+          <div class="hud-bar-track" id="bar-hp-track"><div class="hud-bar-fill" id="bar-hp-fill" style="width:100%"></div></div>
+          <span class="hud-bar-value" id="bar-hp-value">140/140</span>
+        </div>
+        <div class="hud-bar-row">
+          <span class="hud-bar-label">SOUL</span>
+          <div class="hud-bar-track" id="bar-soul-track"><div class="hud-bar-fill" id="bar-soul-fill" style="width:100%"></div></div>
+          <span class="hud-bar-value" id="bar-soul-value">80/80</span>
+        </div>
+        <div class="hud-bar-row">
+          <span class="hud-bar-label">XP</span>
+          <div class="hud-bar-track" id="bar-xp-track"><div class="hud-bar-fill" id="bar-xp-fill" style="width:0%"></div></div>
+          <span class="hud-bar-value" id="bar-xp-value">0/100</span>
+          <span id="hud-prestige-badge">Prestige ×0</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud-actionbar">
+      <div id="skill-slots-row">
+        <div class="skill-slot" data-slot="0" id="slot-0" title="Iron Strike" onclick="window._onSkillClick(0)">
+          <div class="cooldown-sweep" id="cd-sweep-0"></div>
+          <div class="skill-icon">⚔️</div><div class="skill-hotkey">1</div><div class="skill-soul-cost">0</div>
+          <div class="cooldown-overlay" id="cd-overlay-0"></div>
+        </div>
+        <div class="skill-slot" data-slot="1" id="slot-1" title="Soul Pulse" onclick="window._onSkillClick(1)">
+          <div class="cooldown-sweep" id="cd-sweep-1"></div>
+          <div class="skill-icon">💠</div><div class="skill-hotkey">2</div><div class="skill-soul-cost">20</div>
+          <div class="cooldown-overlay" id="cd-overlay-1"></div>
+        </div>
+        <div class="skill-slot" data-slot="2" id="slot-2" title="Wind Step" onclick="window._onSkillClick(2)">
+          <div class="cooldown-sweep" id="cd-sweep-2"></div>
+          <div class="skill-icon">💨</div><div class="skill-hotkey">3</div><div class="skill-soul-cost">15</div>
+          <div class="cooldown-overlay" id="cd-overlay-2"></div>
+        </div>
+        <div class="skill-slot empty-skill" data-slot="3" id="slot-3"><div class="skill-icon">—</div><div class="skill-hotkey">4</div></div>
+        <div class="skill-slot empty-skill" data-slot="4" id="slot-4"><div class="skill-icon">—</div><div class="skill-hotkey">5</div></div>
+        <div class="skill-slot empty-skill" data-slot="5" id="slot-5"><div class="skill-icon">—</div><div class="skill-hotkey">6</div></div>
+      </div>
+      <div id="hud-badge-row">
+        <div class="hud-book-badge">📖 <span id="active-book-badge">—</span></div>
+        <div class="hud-core-badge">💎 <span id="active-core-badge">—</span></div>
+        <div id="hud-keybinds" style="margin-left:auto">
+          <span class="kb-hint"><span class="kb-key">C</span> Char</span>
+          <span class="kb-hint"><span class="kb-key">I</span> Inv</span>
+          <span class="kb-hint"><span class="kb-key">B</span> Books</span>
+          <span class="kb-hint"><span class="kb-key">K</span> Cores</span>
+          <span class="kb-hint"><span class="kb-key">P</span> Prestige</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MONSTER HP BARS & KILL FEED (populated by engine.js) -->
+<div id="monster-bars"></div>
+<div id="kill-feed"></div>
+
+<!-- LOOT POP -->
+<div id="loot-pop-panel"></div>
+
+<!-- PANEL: INVENTORY [I] -->
+<div class="game-panel" id="panel-inventory" style="width:var(--panel-w);top:82px;left:36px">
+  <div class="panel-titlebar" onmousedown="startDrag(event,'panel-inventory')">
+    <span class="panel-title"><span class="panel-title-icon">🎒</span>Inventory</span>
+    <button class="panel-close" onclick="closePanel('inventory')">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="panel-section-title">Equipped Gear</div>
+    <div class="inv-equipped-grid">
+      <div class="equip-slot" oncontextmenu="equipAction(event,'helm');return false"><div class="equip-slot-label">Helm</div><div class="equip-slot-icon">🪖</div><div class="equip-slot-name rarity-normal">—</div></div>
+      <div class="equip-slot" oncontextmenu="equipAction(event,'chest');return false"><div class="equip-slot-label">Chest</div><div class="equip-slot-icon">🛡️</div><div class="equip-slot-name rarity-normal">—</div></div>
+      <div class="equip-slot" oncontextmenu="equipAction(event,'weapon');return false"><div class="equip-slot-label">Weapon</div><div class="equip-slot-icon">⚔️</div><div class="equip-slot-name rarity-normal">—</div></div>
+      <div class="equip-slot" oncontextmenu="equipAction(event,'boots');return false"><div class="equip-slot-label">Boots</div><div class="equip-slot-icon">👢</div><div class="equip-slot-name rarity-normal">—</div></div>
+      <div class="equip-slot" oncontextmenu="equipAction(event,'gloves');return false"><div class="equip-slot-label">Gloves</div><div class="equip-slot-icon">🧤</div><div class="equip-slot-name rarity-normal">—</div></div>
+      <div class="equip-slot" oncontextmenu="equipAction(event,'ring');return false"><div class="equip-slot-label">Ring</div><div class="equip-slot-icon">💍</div><div class="equip-slot-name rarity-normal">—</div></div>
+    </div>
+    <div class="panel-section-title" style="margin-top:14px">Stash (4×8)</div>
+    <div class="inv-stash-grid" id="stash-grid"></div>
+  </div>
+</div>
+
+<!-- PANEL: CHARACTER SHEET [C] -->
+<div class="game-panel" id="panel-character" style="width:420px;top:82px;left:576px">
+  <div class="panel-titlebar" onmousedown="startDrag(event,'panel-character')">
+    <span class="panel-title"><span class="panel-title-icon">📜</span>Character</span>
+    <button class="panel-close" onclick="closePanel('character')">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="char-header">
+      <div class="char-portrait-sm">🗡️</div>
+      <div>
+        <div class="char-name">Aethos</div>
+        <div class="char-origin">Origin · <span id="char-level-display">Level 1</span></div>
+        <div class="char-lore">"A wanderer of ancient cultivation roads."</div>
+      </div>
+    </div>
+    <div class="panel-section-title">Core Stats</div>
+    <div class="stat-grid">
+      <div class="stat-row"><span class="stat-label">STR</span><span class="stat-value" id="stat-str">—</span></div>
+      <div class="stat-row"><span class="stat-label">DEX</span><span class="stat-value" id="stat-dex">—</span></div>
+      <div class="stat-row"><span class="stat-label">VIT</span><span class="stat-value" id="stat-vit">—</span></div>
+      <div class="stat-row"><span class="stat-label">INT</span><span class="stat-value" id="stat-int">—</span></div>
+      <div class="stat-row"><span class="stat-label">WIS</span><span class="stat-value" id="stat-wis">—</span></div>
+      <div class="stat-row"><span class="stat-label">LUK</span><span class="stat-value" id="stat-luk">—</span></div>
+    </div>
+    <div class="panel-section-title">Active Book Bonuses</div>
+    <div class="active-book-bonus">📖 <span id="char-book-bonus">No book active</span></div>
+    <div class="panel-section-title">Active Core Bonus</div>
+    <div class="active-core-bonus">💎 <span id="char-core-bonus">No core active</span></div>
+    <div class="panel-section-title">Prestige</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="prestige-badge" id="char-prestige-badge">⚜ Prestige: ×0</div>
+      <div class="difficulty-badge difficulty-normal" id="char-difficulty-badge">NORMAL</div>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL: BOOK COLLECTION [B] -->
+<div class="game-panel" id="panel-books" style="width:var(--panel-w);top:82px;right:36px">
+  <div class="panel-titlebar" onmousedown="startDrag(event,'panel-books')">
+    <span class="panel-title"><span class="panel-title-icon">📚</span>Book Collection</span>
+    <button class="panel-close" onclick="closePanel('books')">✕</button>
+  </div>
+  <div style="flex-shrink:0">
+    <div class="book-tabs">
+      <div class="book-tab martial active" id="tab-martial" onclick="switchBookTab('martial')">⚔ Martial</div>
+      <div class="book-tab soul" id="tab-soul" onclick="switchBookTab('soul')">✨ Soul</div>
+    </div>
+    <div class="book-filters">
+      <button class="filter-btn active" onclick="filterBooks('all',this)">All Tiers</button>
+      <button class="filter-btn" onclick="filterBooks('1',this)">T1</button>
+      <button class="filter-btn" onclick="filterBooks('2',this)">T2</button>
+      <button class="filter-btn" onclick="filterBooks('3',this)">T3</button>
+      <button class="filter-btn" onclick="filterBooks('4',this)">T4+</button>
+      <button class="filter-btn" onclick="filterBooks('skill',this)">Has Skill</button>
+    </div>
+    <div class="book-count-bar"><span id="book-count">0</span> of <span id="book-total">0</span> discovered</div>
+  </div>
+  <div class="panel-body"><div class="book-list" id="book-list"></div></div>
+</div>
+
+<!-- PANEL: CORE VAULT [K] -->
+<div class="game-panel" id="panel-cores" style="width:400px;top:82px;left:624px">
+  <div class="panel-titlebar" onmousedown="startDrag(event,'panel-cores')">
+    <span class="panel-title"><span class="panel-title-icon">💎</span>Core Vault</span>
+    <button class="panel-close" onclick="closePanel('cores')">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="core-swap-status ready" id="core-swap-status">
+      <span>●</span><span id="core-swap-status-text">Core swap available</span>
+    </div>
+    <div class="core-grid" id="core-grid"></div>
+    <button class="core-swap-btn" id="core-swap-btn" onclick="UI.swapCore()">⇄ Activate Selected Core</button>
+  </div>
+</div>
+
+<!-- PANEL: PRESTIGE [P] -->
+<div class="game-panel" id="panel-prestige" style="width:540px;top:50px;left:50%;transform:translateX(-50%) scale(0.96) translateY(8px)">
+  <div class="panel-titlebar" onmousedown="startDrag(event,'panel-prestige')">
+    <span class="panel-title"><span class="panel-title-icon">⚜</span>Ritual of Return</span>
+    <button class="panel-close" onclick="closePanel('prestige')">✕</button>
+  </div>
+  <div class="prestige-header-notice">"The Path Resets. The Soul Endures."</div>
+  <div class="panel-body">
+    <div class="prestige-section">
+      <div class="prestige-section-title">Quest Status</div>
+      <div id="prestige-quest-status" style="font-size:12px;color:#7a6248">Complete the Ritual of Return quest to unlock prestige.</div>
+    </div>
+    <div class="prestige-section">
+      <div class="prestige-section-title">What You Will Lose</div>
+      <div class="lose-list">
+        <div class="lose-item">All non-Soul Forged equipment</div>
+        <div class="lose-item">All current Gold &amp; consumables</div>
+        <div class="lose-item">All levels (reset to Lv.1)</div>
+      </div>
+    </div>
+    <div class="prestige-section">
+      <div class="prestige-section-title">What You Will Keep</div>
+      <div class="keep-list">
+        <div class="keep-item sf-item">Soul Forged items (marked ✦)</div>
+        <div class="keep-item">All Books learned</div>
+        <div class="keep-item">All Cores owned</div>
+      </div>
+    </div>
+    <div class="prestige-section">
+      <div class="prestige-section-title">Choose Starting Books</div>
+      <div class="prestige-select-row">
+        <div class="prestige-select-label">Martial Book</div>
+        <select class="prestige-select" id="prestige-martial-select"><option value="">— Select —</option></select>
+      </div>
+      <div class="prestige-select-row">
+        <div class="prestige-select-label">Soul Book</div>
+        <select class="prestige-select" id="prestige-soul-select"><option value="">— Select —</option></select>
+      </div>
+    </div>
+    <div class="prestige-section">
+      <div class="prestige-section-title">Choose Core</div>
+      <div class="prestige-select-row">
+        <select class="prestige-select" id="prestige-core-select"><option value="">— Select —</option></select>
+      </div>
+    </div>
+    <div class="prestige-section">
+      <div class="prestige-section-title">Difficulty</div>
+      <div class="difficulty-radios" id="difficulty-radios">
+        <label class="diff-radio-label checked-normal" data-diff="normal" onclick="selectDiff('normal')"><input type="radio" name="pdiff" value="normal" checked>Normal</label>
+        <label class="diff-radio-label" data-diff="nightmare" onclick="selectDiff('nightmare')"><input type="radio" name="pdiff" value="nightmare">Nightmare</label>
+        <label class="diff-radio-label locked-diff" data-diff="hell"><input type="radio" name="pdiff" value="hell" disabled>🔒 Hell</label>
+        <label class="diff-radio-label locked-diff" data-diff="inferno"><input type="radio" name="pdiff" value="inferno" disabled>🔒 Inferno</label>
+      </div>
+    </div>
+    <button class="prestige-confirm-btn" onclick="showPrestigeConfirm()">⚜ Prestige ⚜</button>
+  </div>
+</div>
+
+<!-- PRESTIGE CONFIRM MODAL -->
+<div id="prestige-confirm-modal">
+  <div class="confirm-dialog">
+    <h3>⚜ Begin the Ritual?</h3>
+    <p>You will lose all non-Soul Forged equipment and return to Level 1. Your books, cores, and soul-forged items endure. This cannot be undone.</p>
+    <div class="confirm-dialog-btns">
+      <button class="confirm-yes" onclick="confirmPrestige()">Ascend</button>
+      <button class="confirm-no" onclick="hidePrestigeConfirm()">Turn Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- PRESTIGE FANFARE -->
+<div id="prestige-fanfare">
+  <div class="fanfare-content">
+    <h1>Prestige Ascended</h1>
+    <p id="fanfare-subtitle">Prestige ×1 — Normal Difficulty</p>
+  </div>
+</div>
+
+<!-- ENGINE OVERLAYS -->
+<div id="levelup-flash"><span class="levelup-text">LEVEL UP!</span></div>
+<div id="death-overlay">
+  <h2>YOU HAVE FALLEN</h2>
+  <p>Your soul returns to the entrance…</p>
+  <button id="respawn-btn" onclick="window._onRespawn()">Rise Again</button>
+</div>
+<div id="area-fade"></div>
+<div id="prestige-banner">✦ Prestige Threshold Reached — Seek the Vault ✦</div>
+<div id="debug-overlay">FPS: --</div>
+
+<!-- DEMO CONTROLS -->
+<div id="demo-controls">
+  <div class="demo-label">Live Demo Events</div>
+  <button class="demo-btn" onclick="demoEvent('player:damaged')">Player Damaged</button>
+  <button class="demo-btn" onclick="demoEvent('monster:damaged')">Monster Damaged</button>
+  <button class="demo-btn" onclick="demoEvent('xp:gained')">XP Gained</button>
+  <button class="demo-btn" onclick="demoEvent('loot:dropped')">Loot Dropped</button>
+  <button class="demo-btn" onclick="demoEvent('player:levelup')">Level Up ✨</button>
+  <button class="demo-btn" onclick="demoEvent('prestige:available')">Prestige Ready</button>
+  <button class="demo-btn" onclick="demoEvent('combat:started')">Combat Start</button>
+  <button class="demo-btn" onclick="demoEvent('combat:ended')">Combat End</button>
+</div>
+
+<!--
+  SCRIPT LOAD ORDER (critical):
+    1. step4  — WorldData, QuestManager (no deps)
+    2. step2  — GameData, LootEngine, PrestigeManager (retries for GameEventBus)
+    3. engine — GameEventBus, GameState, Phaser game
+    4. ui     — Panel system, EventBus listeners (uses || guards for stubs)
+    5. integration — wires everything together, patches remaining mismatches
+-->
+<script src="../step4-world-content.js"></script>
+<script src="../step2-data-loot.js"></script>
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+<script src="integration.js"></script>
+
+</body>
+</html>
