@@ -80,6 +80,72 @@
     /* Cooldown overlay visibility fix */
     .cooldown-overlay { display: flex !important; }
     .cooldown-overlay:empty { display: none !important; }
+
+    /* ── Play Game button (top-right of HUD top bar) ── */
+    #play-game-btn {
+      position: fixed;
+      top: 10px; right: 14px;
+      z-index: 300;
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 16px 6px 12px;
+      background: linear-gradient(135deg, #2a1a3e 0%, #1a1228 100%);
+      border: 1px solid #6a3ea0;
+      border-radius: 7px;
+      color: #c8a8f0;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 0 14px rgba(120,60,200,0.25);
+      transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
+    }
+    #play-game-btn:hover {
+      background: linear-gradient(135deg, #3d2260 0%, #2a1848 100%);
+      border-color: #a06adc;
+      box-shadow: 0 0 22px rgba(150,80,240,0.40);
+      color: #e0c8ff;
+    }
+    #play-game-btn svg { flex-shrink: 0; }
+
+    /* ── Godot fullscreen overlay ── */
+    #godot-overlay {
+      position: fixed; inset: 0;
+      z-index: 400;
+      background: #000;
+      display: none;
+      flex-direction: column;
+    }
+    #godot-overlay.open { display: flex; }
+
+    #godot-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 14px;
+      background: #100d18;
+      border-bottom: 1px solid #2a1f40;
+      flex-shrink: 0;
+    }
+    #godot-topbar-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: #8a6ab8;
+    }
+    #godot-close-btn {
+      background: #1e1430; border: 1px solid #4a2a70;
+      border-radius: 5px; color: #a080d0;
+      font-size: 12px; font-family: 'Barlow Condensed', sans-serif;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 4px 14px; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    #godot-close-btn:hover { background: #3a1f60; color: #d4b8ff; }
+
+    #godot-frame {
+      flex: 1;
+      width: 100%; border: none;
+      /* Cross-origin isolation required by Godot WASM */
+    }
   </style>
 </head>
 <body>
@@ -367,6 +433,49 @@
   <button class="demo-btn" onclick="demoEvent('combat:started')">Combat Start</button>
   <button class="demo-btn" onclick="demoEvent('combat:ended')">Combat End</button>
 </div>
+
+<!-- ▶ PLAY GAME BUTTON -->
+<button id="play-game-btn" onclick="openGodotOverlay()" title="Launch the Godot game">
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M3 2.5l11 5.5-11 5.5V2.5z"/>
+  </svg>
+  Play Game
+</button>
+
+<!-- GODOT FULLSCREEN OVERLAY -->
+<div id="godot-overlay">
+  <div id="godot-topbar">
+    <span id="godot-topbar-title">▶ Syllefar's Prestige Cultivation RPG</span>
+    <button id="godot-close-btn" onclick="closeGodotOverlay()">✕ Back to UI</button>
+  </div>
+  <iframe id="godot-frame" src="" allow="autoplay; fullscreen" allowfullscreen></iframe>
+</div>
+
+<script>
+  function openGodotOverlay() {
+    const overlay = document.getElementById('godot-overlay');
+    const frame   = document.getElementById('godot-frame');
+    // Only set src once to avoid reloading the WASM on repeat opens
+    if (!frame.src || frame.src === window.location.href) {
+      frame.src = '../godot/index.html';
+    }
+    overlay.classList.add('open');
+    document.getElementById('play-game-btn').style.display = 'none';
+  }
+
+  function closeGodotOverlay() {
+    document.getElementById('godot-overlay').classList.remove('open');
+    document.getElementById('play-game-btn').style.display = '';
+    // Note: we intentionally do NOT reset frame.src so the game stays loaded in memory
+  }
+
+  // Esc closes the overlay too
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('godot-overlay').classList.contains('open')) {
+      closeGodotOverlay();
+    }
+  });
+</script>
 
 <!--
   SCRIPT LOAD ORDER (critical):
