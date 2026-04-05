@@ -67,7 +67,7 @@ window.LootEngine = window.LootEngine || { rollDrop: (monster) => null };
 /* ── Monster templates
      isRanged:true  → fires projectile at attackRange distance, doesn't chase into melee
      isRanged:false → melee lunge
-   Tuned values: aggroRange↑ so encounters feel earlier; attackRange tighter for melee.
+   projectileStyle: 'wisp' | 'ember' | 'bolt' — drives visual shape
 */
 window.WorldData = window.WorldData || {
   areas: {
@@ -99,33 +99,35 @@ window.WorldData = window.WorldData || {
     fallen_shade: {
       name:'Fallen Shade', maxHP:60,
       stats:{str:8,dex:7,vit:5,int:3,wis:2,luk:2},
-      speed:65, aggroRange:180, attackRange:30, attackSpeed:1.2, damage:8, xpReward:18, color:0x5a3080,
+      speed:65, aggroRange:200, attackRange:32, attackSpeed:1.2, damage:8, xpReward:18, color:0x5a3080,
       isRanged: false,
     },
     bone_hound: {
       name:'Bone Hound', maxHP:80,
       stats:{str:12,dex:9,vit:7,int:2,wis:2,luk:3},
-      speed:85, aggroRange:200, attackRange:32, attackSpeed:1.5, damage:12, xpReward:25, color:0x9a8a60,
+      speed:90, aggroRange:220, attackRange:34, attackSpeed:1.5, damage:12, xpReward:25, color:0x9a8a60,
       isRanged: false,
     },
     ash_crawler: {
       name:'Ash Crawler', maxHP:100,
       stats:{str:14,dex:6,vit:10,int:2,wis:2,luk:2},
-      speed:60, aggroRange:160, attackRange:30, attackSpeed:1.0, damage:15, xpReward:35, color:0x804020,
+      speed:60, aggroRange:180, attackRange:32, attackSpeed:1.0, damage:15, xpReward:35, color:0x804020,
       isRanged: false,
     },
     // ── Ranged ──
     corrupted_wisp: {
       name:'Corrupted Wisp', maxHP:40,
       stats:{str:3,dex:12,vit:3,int:15,wis:8,luk:5},
-      speed:80, aggroRange:240, attackRange:200, attackSpeed:1.6, damage:14, xpReward:30, color:0x20a0c0,
-      isRanged: true,  projectileSpeed: 220, projectileColor: 0x22ddff, projectileRange: 260,
+      speed:75, aggroRange:280, attackRange:230, attackSpeed:1.4, damage:12, xpReward:30, color:0x20a0c0,
+      isRanged: true,
+      projectileSpeed: 200, projectileColor: 0x22ddff, projectileRange: 280, projectileStyle: 'wisp',
     },
     ember_wraith: {
       name:'Ember Wraith', maxHP:70,
       stats:{str:5,dex:10,vit:6,int:12,wis:7,luk:6},
-      speed:75, aggroRange:260, attackRange:220, attackSpeed:1.4, damage:18, xpReward:42, color:0xe04030,
-      isRanged: true,  projectileSpeed: 190, projectileColor: 0xff5520, projectileRange: 300,
+      speed:70, aggroRange:300, attackRange:260, attackSpeed:1.2, damage:16, xpReward:42, color:0xe04030,
+      isRanged: true,
+      projectileSpeed: 180, projectileColor: 0xff5520, projectileRange: 320, projectileStyle: 'ember',
     },
   },
 };
@@ -138,7 +140,7 @@ const SKILL_DEFS = {
     id: 'basic_strike', name: 'Iron Strike', type: 'physical',
     icon: '⚔️', slotIndex: 0,
     cooldown: 0.5,  soulCost: 0,
-    range: 320,     aoe: false, aoeRadius: 0,
+    range: 340,     aoe: false, aoeRadius: 0,
     baseDamage: 10, scalingStat: 'str', scalingFactor: 1.4,
     tags: ['melee', 'physical'],
     description: 'A focused strike that channels martial force.',
@@ -149,7 +151,7 @@ const SKILL_DEFS = {
     id: 'soul_pulse', name: 'Soul Pulse', type: 'magical',
     icon: '💠', slotIndex: 1,
     cooldown: 2.0,  soulCost: 20,
-    range: 340,     aoe: true, aoeRadius: 90,
+    range: 360,     aoe: true, aoeRadius: 90,
     baseDamage: 18, scalingStat: 'int', scalingFactor: 1.8,
     tags: ['ranged', 'magical', 'aoe'],
     description: 'Fires 8 soul orbs in a radial burst.',
@@ -536,6 +538,7 @@ class GameScene extends Phaser.Scene {
       projectileSpeed:  monDef.projectileSpeed  || 200,
       projectileColor:  monDef.projectileColor  || 0xff4422,
       projectileRange:  monDef.projectileRange  || 250,
+      projectileStyle:  monDef.projectileStyle  || 'bolt',
     };
   }
 
@@ -557,6 +560,7 @@ class GameScene extends Phaser.Scene {
       projectileSpeed: tpl.projectileSpeed,
       projectileColor: tpl.projectileColor,
       projectileRange: tpl.projectileRange,
+      projectileStyle: tpl.projectileStyle || 'bolt',
       x, y, vx: 0, vy: 0,
       state: 'idle', attackTimer: 0,
       gfx, shadow, dead: false,
@@ -760,7 +764,7 @@ class GameScene extends Phaser.Scene {
   _fireProjectile(ox, oy, dirX, dirY, skill, damage, isCrit) {
     const isMagical = skill.type === 'magical';
     const speed = skill.projectileSpeed || (isMagical ? 300 : 520);
-    const range = skill.range || 320;
+    const range = skill.range || 340;
     const gfx = this.add.graphics().setDepth(13);
     this._drawProjectileGraphic(gfx, skill);
     gfx.rotation = Math.atan2(dirY, dirX) + (isMagical ? 0 : Math.PI / 2);
@@ -784,11 +788,33 @@ class GameScene extends Phaser.Scene {
   }
 
   /* ────── Enemy Projectile spawning ──────────────────────────────── */
-  _fireEnemyProjectile(monster, dirX, dirY) {
+  /*
+   * Predictive aim: we lead the shot toward where the player will be
+   * in (dist / projSpeed) seconds, capped so it doesn't feel unfair.
+   * lead factor 0.55 — feels responsive but dodge-able.
+   */
+  _fireEnemyProjectile(monster, baseDirX, baseDirY) {
+    const dist = Phaser.Math.Distance.Between(monster.x, monster.y, this.player.x, this.player.y);
+    const travelTime = Math.min(dist / monster.projectileSpeed, 0.65);
+    const lead = 0.55;
+
+    // Player velocity estimate from current frame movement
+    const pvx = (this.player.x - (this._lastPlayerX || this.player.x)) / (1 / 60);
+    const pvy = (this.player.y - (this._lastPlayerY || this.player.y)) / (1 / 60);
+    const aimX = this.player.x + pvx * travelTime * lead;
+    const aimY = this.player.y + pvy * travelTime * lead;
+
+    const dx = aimX - monster.x;
+    const dy = aimY - monster.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const dirX = dx / len;
+    const dirY = dy / len;
+
     const gfx = this.add.graphics().setDepth(12);
-    this._drawEnemyProjectileGraphic(gfx, monster.projectileColor);
+    this._drawEnemyProjectileGraphic(gfx, monster.projectileColor, monster.projectileStyle || 'bolt');
     gfx.x = monster.x; gfx.y = monster.y;
     gfx.rotation = Math.atan2(dirY, dirX);
+
     this.enemyProjectiles.push({
       gfx,
       x: monster.x, y: monster.y,
@@ -797,22 +823,45 @@ class GameScene extends Phaser.Scene {
       range: monster.projectileRange,
       damage: monster.damage,
       color: monster.projectileColor,
+      style: monster.projectileStyle || 'bolt',
       distTravelled: 0,
       dead: false,
     });
   }
 
-  _drawEnemyProjectileGraphic(gfx, color) {
+  /*
+   * Three distinct enemy projectile visuals:
+   *
+   * 'wisp'  — Corrupted Wisp: pulsing cyan magic orb with inner ring
+   * 'ember' — Ember Wraith:   elongated fire lance (teardrop + tail)
+   * 'bolt'  — fallback generic: small tight bolt
+   */
+  _drawEnemyProjectileGraphic(gfx, color, style) {
     gfx.clear();
-    // Outer glow halo
-    gfx.fillStyle(color, 0.18);
-    gfx.fillCircle(0, 0, 9);
-    // Mid ring
-    gfx.fillStyle(color, 0.60);
-    gfx.fillCircle(0, 0, 5);
-    // Bright core
-    gfx.fillStyle(0xffffff, 0.85);
-    gfx.fillCircle(0, 0, 2);
+    if (style === 'wisp') {
+      // Outer soft halo
+      gfx.fillStyle(color, 0.15); gfx.fillCircle(0, 0, 11);
+      // Mid ring (hollow look)
+      gfx.lineStyle(1.5, color, 0.55); gfx.strokeCircle(0, 0, 7);
+      // Bright core
+      gfx.fillStyle(color, 0.85); gfx.fillCircle(0, 0, 4);
+      // Specular
+      gfx.fillStyle(0xffffff, 0.9); gfx.fillCircle(-1.2, -1.2, 1.4);
+    } else if (style === 'ember') {
+      // Glow aura elongated along travel axis
+      gfx.fillStyle(color, 0.18); gfx.fillEllipse(0, 0, 10, 20);
+      // Main lance body
+      gfx.fillStyle(color, 0.88); gfx.fillEllipse(0, 0, 6, 15);
+      // Bright tip (forward = negative Y before rotation)
+      gfx.fillStyle(0xffffff, 0.95); gfx.fillTriangle(0, -8, -2, -4, 2, -4);
+      // Inner hot core
+      gfx.fillStyle(0xffeeaa, 0.80); gfx.fillEllipse(0, 1, 3, 7);
+    } else {
+      // Generic bolt — small, quick-reading
+      gfx.fillStyle(color, 0.22); gfx.fillCircle(0, 0, 7);
+      gfx.fillStyle(color, 0.75); gfx.fillCircle(0, 0, 4);
+      gfx.fillStyle(0xffffff, 0.80); gfx.fillCircle(0, 0, 1.5);
+    }
   }
 
   /* ────── Update player projectiles → hits monsters ──────────────── */
@@ -840,6 +889,10 @@ class GameScene extends Phaser.Scene {
 
   /* ────── Update enemy projectiles → hits player ─────────────────── */
   _updateEnemyProjectiles(dt) {
+    // Track player position for predictive aim next frame
+    this._lastPlayerX = this.player.x;
+    this._lastPlayerY = this.player.y;
+
     const px = this.player.x, py = this.player.y;
     for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
       const proj = this.enemyProjectiles[i];
@@ -850,7 +903,7 @@ class GameScene extends Phaser.Scene {
       if (proj.distTravelled >= proj.range || proj.x < 0 || proj.x > 2400 || proj.y < 0 || proj.y > 2400) {
         proj.dead = true; continue;
       }
-      // Hit player — 14px collision (player body radius)
+      // Hit player — 14px collision (player body radius); invincible during dash
       if (!this.dashActive && Phaser.Math.Distance.Between(proj.x, proj.y, px, py) < 14) {
         this._spawnImpactVFX(proj.x, proj.y, proj.color);
         proj.dead = true;
@@ -1002,17 +1055,24 @@ class GameScene extends Phaser.Scene {
         const dx = px - monster.x, dy = py - monster.y;
         const len = Math.sqrt(dx*dx + dy*dy) || 1;
         if (monster.isRanged) {
-          // Ranged: stay at ~60–80% of attackRange; retreat if too close
-          const preferred = monster.attackRange * 0.70;
-          const tooClose  = dist < monster.attackRange * 0.45;
+          // Keep at 55–75% of attackRange; strafe slightly when stationary
+          const preferred  = monster.attackRange * 0.65;
+          const tooClose   = dist < monster.attackRange * 0.42;
+          const tooFar     = dist > preferred;
+          // Slight strafe offset so ranged enemies don't stack on the same axis
+          const strafeAngle = Math.sin(Date.now() * 0.001 + monster.x) * 0.35;
+          const strafeX = -dy / len * strafeAngle;
+          const strafeY =  dx / len * strafeAngle;
           if (tooClose) {
-            monster.vx = -(dx / len) * monster.speed;
-            monster.vy = -(dy / len) * monster.speed;
-          } else if (dist > preferred) {
-            monster.vx = (dx / len) * monster.speed * 0.7;
-            monster.vy = (dy / len) * monster.speed * 0.7;
+            monster.vx = -(dx / len) * monster.speed + strafeX * monster.speed;
+            monster.vy = -(dy / len) * monster.speed + strafeY * monster.speed;
+          } else if (tooFar) {
+            monster.vx = (dx / len) * monster.speed * 0.65 + strafeX * monster.speed * 0.4;
+            monster.vy = (dy / len) * monster.speed * 0.65 + strafeY * monster.speed * 0.4;
           } else {
-            monster.vx = 0; monster.vy = 0;
+            // In range — strafe sideways to be harder to hit
+            monster.vx = strafeX * monster.speed * 0.5;
+            monster.vy = strafeY * monster.speed * 0.5;
           }
         } else {
           if (monster.state === 'chase') {
@@ -1058,7 +1118,7 @@ class GameScene extends Phaser.Scene {
 
   _monsterAttackPlayer(monster) {
     if (monster.isRanged) {
-      // Fire aimed projectile toward player
+      // Aim direction passed to _fireEnemyProjectile which applies predictive lead
       const dx = this.player.x - monster.x;
       const dy = this.player.y - monster.y;
       const len = Math.sqrt(dx*dx + dy*dy) || 1;
