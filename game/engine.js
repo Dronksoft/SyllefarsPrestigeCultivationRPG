@@ -763,13 +763,19 @@ class GameScene extends Phaser.Scene {
     const els = this._monsterBarEls[monster.id];
     if (!els) return;
 
-    // Convert world pos to screen pos
-    const cam   = this.cameras.main;
-    const scaleX = this.sys.game.canvas.clientWidth  / this.sys.game.config.width;
-    const scaleY = this.sys.game.canvas.clientHeight / this.sys.game.config.height;
+    // Convert world coordinates → screen coordinates using the canvas's
+    // live bounding rect so bars stay aligned after any window resize.
+    // game.config.width/height are the *logical* resolution set at init
+    // time and must NOT be used for screen-space math with Scale.RESIZE.
+    const cam    = this.cameras.main;
+    const canvas = this.sys.game.canvas;
+    const rect   = canvas.getBoundingClientRect();
 
-    const sx = (monster.x - cam.scrollX) * cam.zoom * scaleX;
-    const sy = (monster.y - cam.scrollY - 20) * cam.zoom * scaleY;
+    const scaleX = rect.width  / canvas.width;
+    const scaleY = rect.height / canvas.height;
+
+    const sx = (monster.x - cam.scrollX) * cam.zoom * scaleX + rect.left;
+    const sy = (monster.y - cam.scrollY - 20) * cam.zoom * scaleY + rect.top;
 
     els.wrapper.style.left = sx + 'px';
     els.wrapper.style.top  = sy + 'px';
@@ -1203,61 +1209,184 @@ class GameScene extends Phaser.Scene {
       currentHP: p.currentHP,
       maxHP: p.maxHP,
     });
+    updateHUD();
 
-    if (p.currentHP <= 0) this._onPlayerDeath();
+    if (p.currentHP <= 0) this._playerDeath();
   }
 
   _flashPlayerHit() {
+    this.playerGlow.setFillStyle(0xff2222, 0.4);
     this.tweens.add({
-      targets: this.player,
-      alpha: { from: 0.3, to: 1 },
-      duration: 150, yoyo: false,
+      targets: this.playerGlow,
+      alpha: { from: 0.4, to: 0.08 },
+      duration: 250,
+      ease: 'Quad.easeOut',
+      onComplete: () => this.playerGlow.setFillStyle(0x6633cc, 0.08),
     });
-    this.cameras.main.shake(80, 0.005);
   }
 
-  /* ────── Player Death & Respawn ──────────────────────────────────── */
-  _onPlayerDeath() {
+  /* ────── Player Death / Respawn ──────────────────────────────────── */
+  _playerDeath() {
     if (this.playerDead) return;
-    this.playerDead  = true;
+    this.playerDead = true;
     this.inputFrozen = true;
 
-    window.GameEventBus.emit('player:died');
+    // Death VFX
+    this._spawnDeathVFX(this.player.x, this.player.y, 0x7744cc);
 
-    // Fade to death screen
-    this.cameras.main.flash(400, 180, 0, 0);
-    setTimeout(() => {
-      const overlay = document.getElementById('death-overlay');
-      if (overlay) overlay.classList.add('show');
-    }, 500);
+    const overlay = document.getElementById('death-overlay');
+    if (overlay) overlay.classList.add('show');
+
+    window.GameEventBus.emit('player:died', {});
   }
 
   _respawnPlayer() {
-    const overlay = document.getElementById('death-overlay');
-    if (overlay) overlay.classList.remove('show');
-
     const p = window.GameState.player;
-    p.currentHP   = Math.ceil(p.maxHP * 0.5);
-    p.currentSoul = Math.ceil(p.maxSoul * 0.5);
-    updateHUD();
+    p.currentHP = p.maxHP;
+    p.currentSoul = p.maxSoul;
 
-    // Respawn at entrance
-    this.player.x = 200;
+    this.player.x = 240;
     this.player.y = 1200;
-    this.player.alpha = 1;
     this.playerDead  = false;
     this.inputFrozen = false;
 
-    this.cameras.main.flash(300, 100, 80, 120);
-    window.GameEventBus.emit('player:healed', { amount: p.currentHP, currentHP: p.currentHP, maxHP: p.maxHP });
+    const overlay = document.getElementById('death-overlay');
+    if (overlay) overlay.classList.remove('show');
+
+    updateHUD();
+    window.GameEventBus.emit('player:respawned', {});
   }
 
-  /* ────── Area Transitions ────────────────────────────────────────── */
+  /* ────── VFX helpers ─────────────────────────────────────────────── */
+  _spawnFloatingText(x, y, text, color = 0xffffff) {
+    const layer = document.getElementById('fct-layer');
+    if (!layer) return;
+
+    const cam    = this.cameras.main;
+    const canvas = this.sys.game.canvas;
+    const rect   = canvas.getBoundingClientRect();
+    const scaleX = rect.width  / canvas.width;
+    const scaleY = rect.height / canvas.height;
+
+    const sx = (x - cam.scrollX) * cam.zoom * scaleX + rect.left;
+    const sy = (y - cam.scrollY) * cam.zoom * scaleY + rect.top;
+
+    const hex = '#' + color.toString(16).padStart(6, '0');
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position:fixed;left:${sx}px;top:${sy}px;
+      font:bold 13px 'Barlow Condensed',sans-serif;
+      color:${hex};text-shadow:0 1px 3px #000;
+      pointer-events:none;white-space:nowrap;
+      animation:fctRise 0.9s ease-out forwards;
+      transform:translateX(-50%);
+    `;
+    el.textContent = text;
+    layer.appendChild(el);
+    setTimeout(() => el.remove(), 900);
+  }
+
+  _spawnDeathVFX(x, y, color) {
+    // Burst of small particles
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const dist  = Phaser.Math.Between(20, 60);
+      const px    = x + Math.cos(angle) * dist;
+      const py    = y + Math.sin(angle) * dist;
+
+      const p = this.add.graphics().setDepth(15);
+      p.fillStyle(color, 0.9);
+      p.fillCircle(0, 0, Phaser.Math.Between(2, 5));
+      p.x = x; p.y = y;
+
+      this.tweens.add({
+        targets: p,
+        x: px, y: py,
+        alpha: 0,
+        scaleX: 0.2, scaleY: 0.2,
+        duration: Phaser.Math.Between(300, 600),
+        ease: 'Quad.easeOut',
+        onComplete: () => p.destroy(),
+      });
+    }
+  }
+
+  _spawnDashVFX(x, y) {
+    // Leave an afterimage trail
+    const trail = this.add.graphics().setDepth(9);
+    trail.fillStyle(0x7744cc, 0.4);
+    trail.fillCircle(0, 0, 12);
+    trail.x = x; trail.y = y;
+    this.tweens.add({
+      targets: trail,
+      alpha: 0, scaleX: 1.5, scaleY: 1.5,
+      duration: 250,
+      ease: 'Quad.easeOut',
+      onComplete: () => trail.destroy(),
+    });
+  }
+
+  _spawnSoulPulseVFX(x, y, radius) {
+    const ring = this.add.graphics().setDepth(12);
+    ring.lineStyle(2, 0x88ccff, 0.8);
+    ring.strokeCircle(0, 0, 1);
+    ring.x = x; ring.y = y;
+
+    this.tweens.add({
+      targets: ring,
+      scaleX: radius / 1, scaleY: radius / 1,
+      alpha: 0,
+      duration: 400,
+      ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  /* ────── Attack Arc ──────────────────────────────────────────────── */
+  _showAttackArc(skill) {
+    this.attackArc.clear();
+    const range = skill.range || ATTACK_RANGE;
+    this.attackArc.x = this.player.x;
+    this.attackArc.y = this.player.y;
+
+    if (skill.aoe) {
+      this.attackArc.lineStyle(1, 0x88ccff, 0.4);
+      this.attackArc.strokeCircle(0, 0, skill.aoeRadius);
+    } else {
+      this.attackArc.lineStyle(1, 0xffaa44, 0.35);
+      this.attackArc.strokeCircle(0, 0, range);
+    }
+    this.attackArcTimer = 0.25;
+  }
+
+  _updateAttackArc(dt) {
+    if (this.attackArcTimer > 0) {
+      this.attackArcTimer -= dt;
+      if (this.attackArcTimer <= 0) this.attackArc.clear();
+    }
+    // Keep arc centered on player
+    this.attackArc.x = this.player.x;
+    this.attackArc.y = this.player.y;
+  }
+
+  /* ────── Damage texts & particles ───────────────────────────────── */
+  _updateDamageTexts(dt) {
+    // Floating combat text is HTML-based (see _spawnFloatingText)
+    // Nothing to update here for canvas-based damage texts
+  }
+
+  _updateParticles(dt) {
+    // Particles are managed via Phaser Tweens — auto-cleaned on complete
+  }
+
+  /* ────── Exit zone check ─────────────────────────────────────────── */
   _checkExitZones() {
-    this.exitZones.forEach(exit => {
-      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, exit.x, exit.y);
-      if (dist < 30) {
-        this._transitionToArea(exit.targetAreaId);
+    if (!this.exitZones) return;
+    const px = this.player.x, py = this.player.y;
+    this.exitZones.forEach(ez => {
+      const dist = Phaser.Math.Distance.Between(px, py, ez.x, ez.y);
+      if (dist < 32) {
+        this._transitionToArea(ez.targetAreaId);
       }
     });
   }
@@ -1267,239 +1396,66 @@ class GameScene extends Phaser.Scene {
     this._transitioning = true;
 
     const fade = document.getElementById('area-fade');
-    if (fade) { fade.classList.add('fade-in'); }
-
-    window.GameEventBus.emit('area:transition', { targetAreaId });
+    if (fade) fade.classList.add('fade-in');
 
     setTimeout(() => {
       this.areaId = targetAreaId;
       window.GameState.currentArea = targetAreaId;
 
-      // Re-init scene content for new area
-      const areaData = window.WorldData.areas[targetAreaId];
-      if (!areaData) { this._transitioning = false; return; }
+      const area = window.WorldData.areas[targetAreaId];
+      if (area) {
+        const worldW = MAP_TILES_W * TILE_SIZE;
+        const worldH = MAP_TILES_H * TILE_SIZE;
 
-      // Clear existing graphics
-      this.children.removeAll(true);
-      this.exitZones = [];
-      this.monsters  = [];
-      this.damageTexts = [];
-      this.particles = [];
-      this._monsterBarEls = {};
-      const bars = document.getElementById('monster-bars');
-      if (bars) bars.innerHTML = '';
+        // Rebuild tilemap
+        this.children.removeAll(true);
+        this._monsterBarEls = {};
+        this.exitZones = [];
+        this.monsters = [];
+        window.GameState.monstersAlive = [];
+        const bars = document.getElementById('monster-bars');
+        if (bars) bars.innerHTML = '';
 
-      this._buildTilemap(MAP_TILES_W * TILE_SIZE, MAP_TILES_H * TILE_SIZE, areaData.tileVariant);
-      this._createPlayer(MAP_TILES_W * TILE_SIZE, MAP_TILES_H * TILE_SIZE);
-      this.player.x = (targetAreaId === 'ashveil_ruins') ? 2200 : 200;
-      this.player.y = 1200;
-      this.playerShadow.setPosition(this.player.x, this.player.y + 12);
-      this.playerGlow.setPosition(this.player.x, this.player.y);
-      this.attackArc = this.add.graphics().setDepth(11);
-      this.attackArcTimer = 0;
-      this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-      this._createExitZones(areaData);
-      this.spawnMonsters(targetAreaId);
+        this._buildTilemap(worldW, worldH, area.tileVariant || 'dungeon');
+        this._createPlayer(worldW, worldH);
+        this.spawnMonsters(targetAreaId);
+        this._createExitZones(area);
 
-      window.GameEventBus.emit('area:entered', { areaId: targetAreaId, name: areaData.name });
+        this.cameras.main.setBounds(0, 0, worldW, worldH);
+        this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
-      setTimeout(() => {
-        if (fade) { fade.classList.remove('fade-in'); }
-        this._transitioning = false;
-      }, 500);
+        window.GameEventBus.emit('area:entered', { areaId: targetAreaId, name: area.name });
+      }
+
+      if (fade) fade.classList.remove('fade-in');
+      this._transitioning = false;
     }, 500);
   }
 
-  /* ────── Attack Arc Visual ───────────────────────────────────────── */
-  _showAttackArc(skill) {
-    this.attackArcTimer = 0.18;
-    const arc = this.attackArc;
-    arc.clear();
-    const r = (skill.aoe ? skill.aoeRadius : skill.range) || ATTACK_RANGE;
-    const color = skill.type === 'magical' ? 0x5599ff : 0xffcc44;
-    arc.lineStyle(1.5, color, 0.45);
-    arc.strokeCircle(this.player.x, this.player.y, r);
-    arc.fillStyle(color, 0.06);
-    arc.fillCircle(this.player.x, this.player.y, r);
-  }
-
-  _updateAttackArc(dt) {
-    if (this.attackArcTimer > 0) {
-      this.attackArcTimer -= dt;
-      if (this.attackArcTimer <= 0) {
-        this.attackArc.clear();
-      }
-    }
-  }
-
-  /* ────── Floating Damage Text ────────────────────────────────────── */
-  _spawnFloatingText(x, y, text, color) {
-    const style = { fontFamily: 'Satoshi, sans-serif', fontSize: '13px', color: '#' + color.toString(16).padStart(6, '0'), fontStyle: 'bold', stroke: '#000000', strokeThickness: 2 };
-    const t = this.add.text(x, y, text, style).setOrigin(0.5).setDepth(50);
-    this.damageTexts.push({ text: t, life: 0.9, maxLife: 0.9, vy: -60, x, y });
-  }
-
-  _updateDamageTexts(dt) {
-    for (let i = this.damageTexts.length - 1; i >= 0; i--) {
-      const d = this.damageTexts[i];
-      d.life -= dt;
-      d.y += d.vy * dt;
-      d.text.setPosition(d.x, d.y);
-      d.text.setAlpha(Math.max(0, d.life / d.maxLife));
-      if (d.life <= 0) {
-        d.text.destroy();
-        this.damageTexts.splice(i, 1);
-      }
-    }
-  }
-
-  /* ────── Particle VFX ────────────────────────────────────────────── */
-  _spawnDeathVFX(x, y, color) {
-    const gfx = this.add.graphics().setDepth(30);
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const speed = Phaser.Math.FloatBetween(40, 100);
-      this.particles.push({
-        gfx, x, y,
-        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-        life: 0.5, maxLife: 0.5,
-        color, size: Phaser.Math.FloatBetween(2, 5),
-        shared: i === 0,
-      });
-    }
-  }
-
-  _spawnSoulPulseVFX(x, y, radius) {
-    const gfx = this.add.graphics().setDepth(30);
-    gfx.lineStyle(2, 0x4488ff, 0.8);
-    gfx.strokeCircle(x, y, 10);
-    this.particles.push({ gfx, x, y, vx:0, vy:0, life:0.35, maxLife:0.35, color:0x4488ff, size:radius, isRing:true, radius:10 });
-  }
-
-  _spawnDashVFX(x, y) {
-    const gfx = this.add.graphics().setDepth(30);
-    gfx.fillStyle(0xaaddff, 0.4);
-    gfx.fillCircle(x, y, 14);
-    this.particles.push({ gfx, x, y, vx:0, vy:0, life:0.3, maxLife:0.3, color:0xaaddff, size:14, isFadeCircle:true });
-  }
-
-  _updateParticles(dt) {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.life -= dt;
-      const alpha = Math.max(0, p.life / p.maxLife);
-
-      if (p.isRing) {
-        p.radius += 200 * dt;
-        p.gfx.clear();
-        p.gfx.lineStyle(2, p.color, alpha * 0.8);
-        p.gfx.strokeCircle(p.x, p.y, p.radius);
-      } else if (p.isFadeCircle) {
-        p.gfx.clear();
-        p.gfx.fillStyle(p.color, alpha * 0.4);
-        p.gfx.fillCircle(p.x, p.y, p.size);
-      } else if (p.shared) {
-        // all particles share this gfx in deathVFX — redraw all siblings
-        const siblings = this.particles.filter(s => s.gfx === p.gfx);
-        p.gfx.clear();
-        siblings.forEach(s => {
-          s.x += s.vx * dt;
-          s.y += s.vy * dt;
-          s.vy += 120 * dt; // gravity
-          const a = Math.max(0, s.life / s.maxLife);
-          p.gfx.fillStyle(s.color, a);
-          p.gfx.fillCircle(s.x, s.y, s.size * a);
-        });
-      }
-
-      if (p.life <= 0) {
-        if (!p.shared) {
-          p.gfx.destroy();
-        } else {
-          // Only destroy the gfx once, when the first particle dies
-          const allDead = this.particles.filter(s => s.gfx === p.gfx).every(s => s.life <= 0);
-          if (allDead) p.gfx.destroy();
-        }
-        this.particles.splice(i, 1);
-      }
-    }
-  }
-
-  /* ────── Sync HTML monster HP bars to screen positions ───────────── */
+  /* ────── Sync monster HP bar positions every frame ───────────────── */
   _syncMonsterBars() {
     this.monsters.forEach(m => this._updateMonsterHPBar(m));
   }
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   10. Phaser Game Configuration & Launch
+   10. Phaser Game Config — Scale.RESIZE owns canvas dimensions.
+       Do NOT set width/height alongside Scale.RESIZE; they conflict
+       and cause canvas.width != clientWidth, breaking screen-space math.
    ══════════════════════════════════════════════════════════════════════ */
-const config = {
+const phaserConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  width:  window.innerWidth,
-  height: window.innerHeight,
   backgroundColor: '#0d0b0e',
   physics: {
     default: 'arcade',
-    arcade: { debug: false }
+    arcade: { gravity: { y: 0 }, debug: false },
   },
-  scene: [GameScene],
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
+  scene: [GameScene],
 };
 
-const game = new Phaser.Game(config);
-window._phaserGame = game;  // expose for integration.js and testing
-
-/* ══════════════════════════════════════════════════════════════════════
-   11. window.advanceTime — deterministic testing hook
-   ══════════════════════════════════════════════════════════════════════ */
-window.advanceTime = function(ms) {
-  const scene = game.scene.getScene('GameScene');
-  if (!scene) return;
-  const steps = Math.max(1, Math.round(ms / (1000 / 60)));
-  for (let i = 0; i < steps; i++) scene.update(performance.now(), 1000 / 60);
-};
-
-/* ══════════════════════════════════════════════════════════════════════
-   12. window.render_game_to_text — state snapshot for automated testing
-   ══════════════════════════════════════════════════════════════════════ */
-window.render_game_to_text = function() {
-  const scene = game.scene.getScene('GameScene');
-  const p = window.GameState.player;
-  return JSON.stringify({
-    /* Origin: top-left of world; +x right, +y down */
-    player: {
-      x: scene ? Math.floor(scene.player.x) : 0,
-      y: scene ? Math.floor(scene.player.y) : 0,
-      hp: Math.ceil(p.currentHP),
-      maxHP: p.maxHP,
-      soul: Math.ceil(p.currentSoul),
-      maxSoul: p.maxSoul,
-      level: p.level,
-      xp: Math.floor(p.xp),
-      xpToNext: p.xpToNext,
-      dead: scene ? scene.playerDead : false,
-    },
-    area: window.GameState.currentArea,
-    monsters: window.GameState.monstersAlive.map(m => ({
-      id: m.id, name: m.name, x: Math.floor(m.x), y: Math.floor(m.y),
-      hp: m.currentHP, maxHP: m.maxHP, state: m.state,
-    })),
-    skillCooldowns,
-    prestigeReady: window.GameState.prestigeReady,
-  });
-};
-
-/* ══════════════════════════════════════════════════════════════════════
-   13. Handle resize
-   ══════════════════════════════════════════════════════════════════════ */
-window.addEventListener('resize', () => {
-  game.scale.resize(window.innerWidth, window.innerHeight);
-});
-
-/* Initial HUD render */
-updateHUD();
+window.PhaserGame = new Phaser.Game(phaserConfig);
