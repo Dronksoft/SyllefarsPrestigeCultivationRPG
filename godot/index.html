@@ -67,7 +67,80 @@
       line-height: 1.5;
     }
 
-    /* ── Back button ── */
+    /* ── Coming Soon overlay (replaces the ugly browser alert) ── */
+    #coming-soon {
+      display: none;
+      position: fixed; inset: 0;
+      background: #0d0b10;
+      z-index: 150;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.4rem;
+      text-align: center;
+      padding: 2rem;
+    }
+    #coming-soon.show { display: flex; }
+
+    .cs-rune {
+      font-size: 3.5rem;
+      opacity: 0.18;
+      letter-spacing: 0.3em;
+      color: #a060cc;
+      user-select: none;
+    }
+
+    .cs-title {
+      font-size: clamp(1.6rem, 4vw, 2.6rem);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #c8a060;
+      text-shadow: 0 0 28px #c8a06066;
+    }
+
+    .cs-divider {
+      width: 200px; height: 1px;
+      background: linear-gradient(90deg, transparent, #7a44cc88, transparent);
+    }
+
+    .cs-subtitle {
+      font-size: 0.9rem;
+      color: #6a5888;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      max-width: 380px;
+      line-height: 1.7;
+    }
+
+    .cs-badge {
+      display: inline-block;
+      padding: 5px 18px;
+      border: 1px solid #5a3a88;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #9a70cc;
+      background: rgba(90, 50, 140, 0.12);
+    }
+
+    .cs-back-btn {
+      margin-top: 0.5rem;
+      padding: 8px 28px;
+      background: #1e1430;
+      border: 1px solid #5a3a88;
+      border-radius: 7px;
+      color: #a080cc;
+      font-size: 0.82rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .cs-back-btn:hover { background: #2e1e50; color: #d4b8ff; }
+
+    /* ── Back button (top-left) ── */
     #back-btn {
       position: fixed;
       top: 12px; left: 14px;
@@ -101,15 +174,46 @@
 
   <!-- Custom loading screen -->
   <div id="loader">
-    <div id="loader-title">Syllefar’s Cultivation RPG</div>
+    <div id="loader-title">Syllefar's Cultivation RPG</div>
     <div id="loader-bar-wrap"><div id="loader-bar"></div></div>
     <div id="loader-pct">Loading…</div>
     <div id="loader-error"></div>
   </div>
 
+  <!-- Coming Soon screen (shown instead of browser alert for empty project) -->
+  <div id="coming-soon">
+    <div class="cs-rune">天 道 天 道</div>
+    <div class="cs-title">Syllefar's Cultivation RPG</div>
+    <div class="cs-divider"></div>
+    <div class="cs-badge">⚜ Coming Soon ⚜</div>
+    <div class="cs-subtitle">
+      The cultivation engine is being forged.<br>
+      Return when the stars align.
+    </div>
+    <a class="cs-back-btn" href="../game/index.html">← Back to the UI Demo</a>
+  </div>
+
   <canvas id="canvas">Your browser does not support the canvas element.</canvas>
 
   <noscript>JavaScript is required to run this game.</noscript>
+
+  <script>
+    // Suppress the default browser alert() so Godot's
+    // "no main scene" error doesn't show as a popup.
+    const _origAlert = window.alert;
+    window.alert = function(msg) {
+      if (typeof msg === 'string' && msg.toLowerCase().includes('main scene')) {
+        showComingSoon();
+      } else {
+        _origAlert.call(window, msg);
+      }
+    };
+
+    function showComingSoon() {
+      document.getElementById('loader').classList.add('hidden');
+      document.getElementById('coming-soon').classList.add('show');
+    }
+  </script>
 
   <script src="SyllesCultivationRPG.js"></script>
   <script>
@@ -137,6 +241,11 @@
     const errorEl   = document.getElementById('loader-error');
 
     function showError(msg) {
+      // If this is the "no main scene" error, show the coming-soon screen instead
+      if (msg && msg.toLowerCase().includes('main scene')) {
+        showComingSoon();
+        return;
+      }
       errorEl.style.display = 'block';
       errorEl.textContent   = msg;
       pctEl.textContent     = 'Failed to load.';
@@ -154,15 +263,15 @@
             pctEl.textContent = pct + '%';
           } else {
             barEl.style.width = '100%';
-            barEl.style.animation = 'none';
           }
         }
       }).then(() => {
         loaderEl.classList.add('hidden');
         setTimeout(() => loaderEl.remove(), 700);
       }).catch(err => {
-        console.error(err);
-        showError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('Godot startup error:', msg);
+        showError(msg);
       });
     }
   </script>
