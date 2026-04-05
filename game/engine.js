@@ -36,7 +36,7 @@ window.GameState = {
     maxHP: 140,
     currentSoul: 80,
     maxSoul: 80,
-    skills: [],          // populated below
+    skills: [],
     prestigeCount: 0,
     activeMartialBook: null,
     activeSoulBook: null,
@@ -56,20 +56,16 @@ window.GameState = {
 /* ══════════════════════════════════════════════════════════════════════
    3. HOOK stubs — Agent 2 (GameData / LootEngine) & Agent 4 (WorldData)
    ══════════════════════════════════════════════════════════════════════ */
-
-// HOOK: Agent 2 — GameData (stat tables, book definitions, core definitions)
 window.GameData = window.GameData || {
   getStatBonuses: (originId) => ({ str:0, dex:0, vit:0, int:0, wis:0, luk:0 }),
   calcMaxHP: (vit, level) => 80 + vit * 4 + level * 5,
   calcMaxSoul: (wis, level) => 40 + wis * 4 + level * 3,
 };
 
-// HOOK: Agent 2 — LootEngine (generates loot on monster death)
 window.LootEngine = window.LootEngine || {
-  rollDrop: (monster) => null,   // returns GearItem | null
+  rollDrop: (monster) => null,
 };
 
-// HOOK: Agent 4 — WorldData (area definitions, spawn tables, boss encounters)
 window.WorldData = window.WorldData || {
   areas: {
     ashveil_ruins: {
@@ -111,28 +107,30 @@ window.WorldData = window.WorldData || {
 };
 
 /* ══════════════════════════════════════════════════════════════════════
-   4. Skill Definitions (3 hardcoded MVP skills)
+   4. Skill Definitions
    ══════════════════════════════════════════════════════════════════════ */
 const SKILL_DEFS = {
   basic_strike: {
     id: 'basic_strike', name: 'Iron Strike', type: 'physical',
     icon: '⚔️', slotIndex: 0,
     cooldown: 0.5,   soulCost: 0,
-    range: 80,       aoe: false,  aoeRadius: 0,
+    range: 220,      aoe: false,  aoeRadius: 0,
     baseDamage: 10,  scalingStat: 'str', scalingFactor: 1.4,
     tags: ['melee', 'physical'],
     description: 'A focused strike that channels martial force.',
     passive: false,
+    projectileSpeed: 420,
   },
   soul_pulse: {
     id: 'soul_pulse', name: 'Soul Pulse', type: 'magical',
     icon: '💠', slotIndex: 1,
     cooldown: 2.0,   soulCost: 20,
-    range: 200,      aoe: true,   aoeRadius: 90,
+    range: 260,      aoe: true,   aoeRadius: 90,
     baseDamage: 18,  scalingStat: 'int', scalingFactor: 1.8,
     tags: ['ranged', 'magical', 'aoe'],
     description: 'Releases condensed soul energy in a ring.',
     passive: false,
+    projectileSpeed: 300,
   },
   dash: {
     id: 'dash', name: 'Wind Step', type: 'physical',
@@ -147,7 +145,6 @@ const SKILL_DEFS = {
   },
 };
 
-// Assign to GameState player
 window.GameState.player.skills = [
   SKILL_DEFS.basic_strike,
   SKILL_DEFS.soul_pulse,
@@ -163,35 +160,15 @@ function calcSkillDamage(skill, attackerStats) {
   return Math.floor(base + scaledVal);
 }
 
-/**
- * applyDamage — full pipeline
- *  incomingDamage
- *   → defense reduction (flat + %)
- *   → core affinity boost
- *   → book bonus
- *   → final damage
- */
 function applyDamageToTarget(rawDamage, skill, targetDef, targetCurrentHP, isPlayer = false) {
   const player = window.GameState.player;
-
-  // 1. Defense reduction
-  const flatDef   = isPlayer ? (targetDef || 0) : (targetDef || 0);
-  const pctDef    = 0;  // HOOK: Agent 2 — gear defense %
+  const flatDef = isPlayer ? (targetDef || 0) : (targetDef || 0);
+  const pctDef  = 0;
   let dmg = Math.max(1, rawDamage - flatDef);
   dmg = Math.floor(dmg * (1 - pctDef));
-
-  // 2. HOOK: Agent 2 — core affinity boost
-  // if (player.activeCore && coreMatchesTags(player.activeCore, skill.tags)) dmg *= 1.25;
-
-  // 3. HOOK: Agent 2 — active book bonus
-  // if (skill.type === 'physical' && player.activeMartialBook) dmg *= 1.1;
-  // if (skill.type === 'magical'  && player.activeSoulBook)    dmg *= 1.15;
-
-  // 4. Critical hit
-  const critChance = (player.stats.luk || 6) * 0.5; // 0.5% per luk
+  const critChance = (player.stats.luk || 6) * 0.5;
   const isCrit = Math.random() * 100 < critChance;
   if (isCrit) dmg = Math.floor(dmg * 1.8);
-
   return { finalDamage: Math.max(1, dmg), isCrit };
 }
 
@@ -211,25 +188,15 @@ function grantXP(amount) {
     p.xp -= p.xpToNext;
     p.level++;
     p.xpToNext = xpToNextLevel(p.level);
-
-    // Recalculate stats on level up (small flat gains per level)
-    p.stats.str += 1;
-    p.stats.dex += 1;
-    p.stats.vit += 1;
-    p.stats.int += 1;
-    p.stats.wis += 1;
-
-    // Recalculate HP/Soul pools
+    p.stats.str += 1; p.stats.dex += 1; p.stats.vit += 1;
+    p.stats.int += 1; p.stats.wis += 1;
     const newMaxHP   = window.GameData.calcMaxHP(p.stats.vit, p.level);
     const newMaxSoul = window.GameData.calcMaxSoul(p.stats.wis, p.level);
-    p.currentHP = Math.min(p.currentHP + (newMaxHP - p.maxHP), newMaxHP);
+    p.currentHP   = Math.min(p.currentHP   + (newMaxHP   - p.maxHP),   newMaxHP);
     p.currentSoul = Math.min(p.currentSoul + (newMaxSoul - p.maxSoul), newMaxSoul);
     p.maxHP   = newMaxHP;
     p.maxSoul = newMaxSoul;
-
     window.GameEventBus.emit('player:levelup', { newLevel: p.level, stats: p.stats });
-
-    // HOOK: Agent 2 — check skill unlock on level up
     window.GameEventBus.emit('levelup:skillcheck', { level: p.level });
   }
   updateHUD();
@@ -240,17 +207,15 @@ function grantXP(amount) {
    ══════════════════════════════════════════════════════════════════════ */
 function updateHUD() {
   const p = window.GameState.player;
+  const hpPct  = Math.max(0, (p.currentHP   / p.maxHP)   * 100);
+  const sPct   = Math.max(0, (p.currentSoul  / p.maxSoul) * 100);
+  const xpPct  = (p.xp / p.xpToNext) * 100;
 
-  const hpPct   = Math.max(0, (p.currentHP   / p.maxHP)   * 100);
-  const sPct    = Math.max(0, (p.currentSoul  / p.maxSoul) * 100);
-  const xpPct   = (p.xp / p.xpToNext) * 100;
-
-  // step1 element IDs (legacy bar-hp etc.)
-  const elHp    = document.getElementById('bar-hp');
-  const elSoul  = document.getElementById('bar-soul');
-  const elXp    = document.getElementById('bar-xp');
-  if (elHp)   elHp.style.width   = hpPct   + '%';
-  if (elSoul) elSoul.style.width = sPct    + '%';
+  const elHp   = document.getElementById('bar-hp');
+  const elSoul = document.getElementById('bar-soul');
+  const elXp   = document.getElementById('bar-xp');
+  if (elHp)   elHp.style.width   = hpPct  + '%';
+  if (elSoul) elSoul.style.width = sPct   + '%';
   if (elXp)   elXp.style.width   = xpPct  + '%';
   const vHp   = document.getElementById('val-hp');
   const vSoul = document.getElementById('val-soul');
@@ -261,7 +226,6 @@ function updateHUD() {
   const lvEl = document.getElementById('player-level');
   if (lvEl) lvEl.textContent = `Lv. ${p.level} · ${originLabel(p.originId)}`;
 
-  // step3 element IDs (bar-hp-fill etc.)
   const elHpFill   = document.getElementById('bar-hp-fill');
   const elSoulFill = document.getElementById('bar-soul-fill');
   const elXpFill   = document.getElementById('bar-xp-fill');
@@ -285,7 +249,6 @@ function originLabel(id) {
 }
 
 function updateSkillCooldownUI(slotIndex, cdRemain, cdTotal) {
-  // step1 element IDs
   const slot = document.getElementById(`slot-${slotIndex}`);
   if (slot) {
     if (cdRemain <= 0) {
@@ -299,7 +262,6 @@ function updateSkillCooldownUI(slotIndex, cdRemain, cdTotal) {
       ov.textContent = cdRemain.toFixed(1);
     }
   }
-  // step3 element IDs (cd-sweep / cd-overlay)
   const sweep   = document.getElementById(`cd-sweep-${slotIndex}`);
   const overlay = document.getElementById(`cd-overlay-${slotIndex}`);
   if (sweep) {
@@ -350,7 +312,6 @@ window.GameEventBus.on('player:levelup', () => {
 });
 window.GameEventBus.on('monster:died', ({ monster }) => {
   addKillFeed(monster.name);
-  // Loot generation is handled by step2-data-loot.js (it listens to monster:died and emits loot:dropped)
 });
 window.GameEventBus.on('xp:gained', updateHUD);
 window.GameEventBus.on('prestige:available', () => {
@@ -364,16 +325,13 @@ window.GameEventBus.on('prestige:available', () => {
 window.GameEventBus.on('area:entered', ({ areaId, name }) => {
   const area = window.WorldData.areas[areaId];
   const areaName = name || (area && area.name) || areaId;
-  // step1 element
   const el = document.getElementById('area-name');
   if (el) el.textContent = areaName;
-  // step3 element
   const el2 = document.getElementById('area-name-text');
   if (el2) el2.textContent = areaName;
   window.GameState.currentArea = areaId;
 });
 
-/* skill click from action bar HTML onclick */
 window._onSkillClick = function(slotIndex) {
   window.GameEventBus.emit('ui:skillclick', { slotIndex });
 };
@@ -385,21 +343,21 @@ window._onRespawn = function() {
    9. PHASER 3 — Main Game Scene
    ══════════════════════════════════════════════════════════════════════ */
 
-const TILE_SIZE      = 32;
-const MAP_TILES_W    = 75;   // 2400 / 32
-const MAP_TILES_H    = 75;
-const PLAYER_SPEED   = 140;
-const ATTACK_RANGE   = 90;
-const SOUL_REGEN_RATE = 3;   // per second
+const TILE_SIZE       = 32;
+const MAP_TILES_W     = 75;
+const MAP_TILES_H     = 75;
+const PLAYER_SPEED    = 140;
+const ATTACK_RANGE    = 90;
+const SOUL_REGEN_RATE = 3;
 
-// Skill cooldown tracking (runtime state)
-const skillCooldowns = [0, 0, 0, 0, 0, 0];   // seconds remaining per slot
+const skillCooldowns = [0, 0, 0, 0, 0, 0];
 
 class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' });
     this.player      = null;
     this.monsters    = [];
+    this.projectiles = [];   // ← ROTMG-style projectile pool
     this.damageTexts = [];
     this.particles   = [];
     this.playerDead  = false;
@@ -417,9 +375,7 @@ class GameScene extends Phaser.Scene {
     this.areaId = window.GameState.currentArea;
   }
 
-  preload() {
-    // We use procedural graphics — no external sprite assets needed
-  }
+  preload() {}
 
   create() {
     const areaData = window.WorldData.areas[this.areaId] || window.WorldData.areas['ashveil_ruins'];
@@ -427,48 +383,31 @@ class GameScene extends Phaser.Scene {
     const worldW   = MAP_TILES_W * TILE_SIZE;
     const worldH   = MAP_TILES_H * TILE_SIZE;
 
-    // ── Tilemap (procedural) — resolve tileVariant from step4 tileset field if needed ──
     if (!areaData.tileVariant && areaData.tileset) {
       areaData.tileVariant = (areaData.id || '').includes('ruins') ? 'dungeon' : 'wasteland';
     }
     this._buildTilemap(worldW, worldH, areaData.tileVariant || 'dungeon');
-
-    // ── Physics world bounds ──────────────────────────────────────────
     this.physics.world.setBounds(0, 0, worldW, worldH);
-
-    // ── Player ───────────────────────────────────────────────────────
     this._createPlayer(worldW, worldH);
-
-    // ── Monsters ─────────────────────────────────────────────────────
     this.spawnMonsters(this.areaId);
-
-    // ── Area exit trigger zones ───────────────────────────────────────
     this._createExitZones(areaData);
 
-    // ── Camera ───────────────────────────────────────────────────────
     this.cameras.main.setBounds(0, 0, worldW, worldH);
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setZoom(1.0);
 
-    // ── Input ─────────────────────────────────────────────────────────
-    this.cursors  = this.input.keyboard.createCursorKeys();
-    this.wasd     = this.input.keyboard.addKeys({ up:'W', down:'S', left:'A', right:'D' });
+    this.cursors   = this.input.keyboard.createCursorKeys();
+    this.wasd      = this.input.keyboard.addKeys({ up:'W', down:'S', left:'A', right:'D' });
     this.skillKeys = this.input.keyboard.addKeys({ k1:'ONE', k2:'TWO', k3:'THREE', k4:'FOUR', k5:'FIVE', k6:'SIX' });
 
-    // Mouse click to attack
     this.input.on('pointerdown', this._onPointerDown, this);
-    // Hold LMB to auto attack
     this.input.on('pointermove', this._onPointerHold, this);
 
-    // UI skill click bridge
     window.GameEventBus.on('ui:skillclick', ({ slotIndex }) => {
       this._activateSkillSlot(slotIndex);
     });
-
-    // Respawn bridge
     window.GameEventBus.on('ui:respawn', () => this._respawnPlayer());
 
-    // ── Recalculate HP/Soul from stats ────────────────────────────────
     const p = window.GameState.player;
     p.maxHP   = window.GameData.calcMaxHP(p.stats.vit, p.level);
     p.maxSoul = window.GameData.calcMaxSoul(p.stats.wis, p.level);
@@ -485,10 +424,7 @@ class GameScene extends Phaser.Scene {
     const ts = TILE_SIZE;
     const cols = Math.ceil(worldW / ts);
     const rows = Math.ceil(worldH / ts);
-
     const isDungeon = variant === 'dungeon';
-
-    // Floor
     const floorColors = isDungeon
       ? [0x1a1520, 0x1e1828, 0x18151e, 0x211c2a]
       : [0x2a1e10, 0x2e200e, 0x261a0c, 0x321f0a];
@@ -501,17 +437,13 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // Grid lines (very subtle)
     gfx.lineStyle(1, isDungeon ? 0x2a2035 : 0x352015, 0.25);
     for (let r = 0; r <= rows; r++) gfx.lineBetween(0, r * ts, worldW, r * ts);
     for (let c = 0; c <= cols; c++) gfx.lineBetween(c * ts, 0, c * ts, worldH);
 
-    // Scatter obstacle rocks / rubble
     this._buildObstacles(gfx, worldW, worldH, isDungeon);
 
-    // Atmospheric edge vignette
     const vigGfx = this.add.graphics().setDepth(200);
-    // (Vignette drawn via rectangle borders for performance)
     const vigColors = isDungeon ? 0x0a0812 : 0x100804;
     for (let i = 0; i < 5; i++) {
       vigGfx.lineStyle(18 - i * 2, vigColors, 0.25 - i * 0.04);
@@ -524,32 +456,26 @@ class GameScene extends Phaser.Scene {
     const ts = TILE_SIZE;
     const occupiedCells = new Set();
     const reservedCenter = { cx: 1200, cy: 1200, r: 200 };
-
-    const stoneColor = isDungeon ? 0x3a3045 : 0x3a2810;
+    const stoneColor  = isDungeon ? 0x3a3045 : 0x3a2810;
     const detailColor = isDungeon ? 0x2a2035 : 0x2a1a08;
-
     this.solidTiles = [];
 
     for (let i = 0; i < count; i++) {
       const gx = Phaser.Math.Between(2, Math.floor(worldW / ts) - 3);
       const gy = Phaser.Math.Between(2, Math.floor(worldH / ts) - 3);
       const key = `${gx},${gy}`;
-
       const wx = gx * ts + ts / 2;
       const wy = gy * ts + ts / 2;
       const dist = Phaser.Math.Distance.Between(wx, wy, reservedCenter.cx, reservedCenter.cy);
       if (dist < reservedCenter.r) continue;
       if (occupiedCells.has(key)) continue;
-
       occupiedCells.add(key);
-
       const w = ts + Phaser.Math.Between(-8, 8);
       const h = ts + Phaser.Math.Between(-6, 6);
       gfx.fillStyle(stoneColor);
       gfx.fillRect(gx * ts, gy * ts, w, h);
       gfx.fillStyle(detailColor, 0.6);
       gfx.fillRect(gx * ts + 4, gy * ts + 3, w - 8, h - 7);
-
       this.solidTiles.push(new Phaser.Geom.Rectangle(gx * ts, gy * ts, w, h));
     }
   }
@@ -559,25 +485,16 @@ class GameScene extends Phaser.Scene {
     const startX = worldW * 0.1;
     const startY = worldH * 0.5;
 
-    // Body (ellipse for top-down look)
     this.player = this.add.graphics();
     this.player.setDepth(10);
     this._drawPlayerGraphic(this.player, false);
-
     this.player.x = startX;
     this.player.y = startY;
     this.player.vx = 0;
     this.player.vy = 0;
 
-    // Shadow
     this.playerShadow = this.add.ellipse(startX, startY + 12, 28, 8, 0x000000, 0.4).setDepth(9);
-
-    // Player glow
-    this.playerGlow = this.add.ellipse(startX, startY, 36, 36, 0x6633cc, 0.08).setDepth(8);
-
-    // Attack indicator arc (shown briefly when attacking)
-    this.attackArc = this.add.graphics().setDepth(11);
-    this.attackArcTimer = 0;
+    this.playerGlow   = this.add.ellipse(startX, startY, 36, 36, 0x6633cc, 0.08).setDepth(8);
   }
 
   _drawPlayerGraphic(gfx, isDashing) {
@@ -585,27 +502,18 @@ class GameScene extends Phaser.Scene {
     const baseColor = isDashing ? 0x88aaff : 0x7744cc;
     const rimColor  = isDashing ? 0xaaddff : 0xaa77ff;
     const coreColor = isDashing ? 0xeef5ff : 0xddbbff;
-
-    // Body circle
     gfx.fillStyle(baseColor);
     gfx.fillCircle(0, 0, 14);
-
-    // Rim highlight
     gfx.lineStyle(2, rimColor, 0.8);
     gfx.strokeCircle(0, 0, 14);
-
-    // Inner core dot
     gfx.fillStyle(coreColor, 0.9);
     gfx.fillCircle(0, -3, 4);
-
-    // Direction indicator (drawn during movement in update)
     gfx.fillStyle(rimColor, 0.6);
     gfx.fillTriangle(0, -14, -4, -8, 4, -8);
   }
 
   /* ────── Monster Spawning ─────────────────────────────────────────── */
   spawnMonsters(areaId) {
-    // Clear existing
     this.monsters.forEach(m => { m.gfx && m.gfx.destroy(); m.shadow && m.shadow.destroy(); });
     this.monsters = [];
     window.GameState.monstersAlive = [];
@@ -617,12 +525,9 @@ class GameScene extends Phaser.Scene {
     if (!area) return;
 
     if (area.spawnPoints) {
-      // step4 WorldData format: spawnPoints with monsterTable
       area.spawnPoints.forEach(sp => {
         (sp.monsterTable || []).forEach(entry => {
-          const monDef = window.WorldData.getMonster
-            ? window.WorldData.getMonster(entry.monsterId)
-            : null;
+          const monDef = window.WorldData.getMonster ? window.WorldData.getMonster(entry.monsterId) : null;
           if (!monDef) return;
           const tpl = this._toSpawnTpl(monDef);
           const cnt = Phaser.Math.Between(entry.minCount || 1, entry.maxCount || 1);
@@ -634,7 +539,6 @@ class GameScene extends Phaser.Scene {
         });
       });
     } else if (area.spawns) {
-      // step1 stub format
       area.spawns.forEach(spawnGroup => {
         const tpl = window.WorldData.monsterTemplates && window.WorldData.monsterTemplates[spawnGroup.type];
         if (!tpl) return;
@@ -647,7 +551,6 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // Normalise a step4 monster definition into the flat template format _spawnMonster expects
   _toSpawnTpl(monDef) {
     const tierColors = { normal: 0x5a3080, rare: 0x3060b0, boss: 0xb03020, unique: 0xd07020 };
     return {
@@ -668,8 +571,7 @@ class GameScene extends Phaser.Scene {
 
   _spawnMonster(tpl, x, y, typeId) {
     const id = `monster_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-
-    const gfx = this.add.graphics().setDepth(10);
+    const gfx    = this.add.graphics().setDepth(10);
     const shadow = this.add.ellipse(x, y + 10, 24, 7, 0x000000, 0.35).setDepth(9);
     this._drawMonsterGraphic(gfx, tpl.color, false, tpl.name);
     gfx.x = x; gfx.y = y;
@@ -677,53 +579,34 @@ class GameScene extends Phaser.Scene {
     const monster = {
       id, typeId,
       name: tpl.name,
-      maxHP: tpl.maxHP,
-      currentHP: tpl.maxHP,
+      maxHP: tpl.maxHP, currentHP: tpl.maxHP,
       stats: { ...tpl.stats },
-      speed: tpl.speed,
-      aggroRange: tpl.aggroRange,
-      attackRange: tpl.attackRange,
-      attackSpeed: tpl.attackSpeed,
-      damage: tpl.damage,
-      xpReward: tpl.xpReward,
-      color: tpl.color,
-      x, y,
-      vx: 0, vy: 0,
-      state: 'idle',         // idle | aggro | chase | attack
-      attackTimer: 0,
-      gfx, shadow,
-      dead: false,
-      deathTimer: 0,
+      speed: tpl.speed, aggroRange: tpl.aggroRange,
+      attackRange: tpl.attackRange, attackSpeed: tpl.attackSpeed,
+      damage: tpl.damage, xpReward: tpl.xpReward, color: tpl.color,
+      x, y, vx: 0, vy: 0,
+      state: 'idle', attackTimer: 0,
+      gfx, shadow, dead: false, deathTimer: 0,
     };
 
     this.monsters.push(monster);
     window.GameState.monstersAlive.push(monster);
-
-    // HTML health bar
     this._createMonsterHPBar(monster);
-
     return monster;
   }
 
   _drawMonsterGraphic(gfx, color, isAggro, name) {
     gfx.clear();
-
-    // Shadow body
     const darkColor = Phaser.Display.Color.IntegerToColor(color);
     darkColor.darken(30);
-
     gfx.fillStyle(color);
     gfx.fillCircle(0, 0, 11);
     gfx.lineStyle(1.5, isAggro ? 0xff4444 : 0x000000, 0.6);
     gfx.strokeCircle(0, 0, 11);
-
-    // Aggro indicator
     if (isAggro) {
       gfx.lineStyle(1, 0xff3333, 0.5);
       gfx.strokeCircle(0, 0, 15);
     }
-
-    // Eyes
     gfx.fillStyle(0xff2222);
     gfx.fillCircle(-3.5, -2, 2.2);
     gfx.fillCircle(3.5, -2, 2.2);
@@ -735,54 +618,39 @@ class GameScene extends Phaser.Scene {
   _createMonsterHPBar(monster) {
     const container = document.getElementById('monster-bars');
     if (!container) return;
-
     const wrapper = document.createElement('div');
     wrapper.className = 'monster-hpbar';
     wrapper.id = `mbar-${monster.id}`;
     wrapper.style.cssText = 'position:absolute;transform:translate(-50%,-100%);';
-
     const nameEl = document.createElement('div');
     nameEl.className = 'monster-name-label';
     nameEl.textContent = monster.name;
-
     const track = document.createElement('div');
     track.className = 'monster-hp-track';
     const fill = document.createElement('div');
     fill.className = 'monster-hp-fill';
     fill.style.width = '100%';
     track.appendChild(fill);
-
     wrapper.appendChild(nameEl);
     wrapper.appendChild(track);
     container.appendChild(wrapper);
-
     this._monsterBarEls[monster.id] = { wrapper, fill };
   }
 
   _updateMonsterHPBar(monster) {
     const els = this._monsterBarEls[monster.id];
     if (!els) return;
-
-    // Convert world coordinates → screen coordinates using the canvas's
-    // live bounding rect so bars stay aligned after any window resize.
-    // game.config.width/height are the *logical* resolution set at init
-    // time and must NOT be used for screen-space math with Scale.RESIZE.
     const cam    = this.cameras.main;
     const canvas = this.sys.game.canvas;
     const rect   = canvas.getBoundingClientRect();
-
     const scaleX = rect.width  / canvas.width;
     const scaleY = rect.height / canvas.height;
-
     const sx = (monster.x - cam.scrollX) * cam.zoom * scaleX + rect.left;
     const sy = (monster.y - cam.scrollY - 20) * cam.zoom * scaleY + rect.top;
-
     els.wrapper.style.left = sx + 'px';
     els.wrapper.style.top  = sy + 'px';
-
     const pct = Math.max(0, monster.currentHP / monster.maxHP * 100);
     els.fill.style.width = pct + '%';
-
     if (monster.dead) els.wrapper.style.display = 'none';
   }
 
@@ -790,26 +658,15 @@ class GameScene extends Phaser.Scene {
   _createExitZones(areaData) {
     this.exitZones = [];
     if (!areaData.exits) return;
-
     areaData.exits.forEach(exit => {
-      const zone = this.add.rectangle(exit.x, exit.y, 48, 48, 0xc8973a, 0.18).setDepth(1);
+      const zone   = this.add.rectangle(exit.x, exit.y, 48, 48, 0xc8973a, 0.18).setDepth(1);
       zone.targetAreaId = exit.targetAreaId;
-
-      // Animated border
       const border = this.add.rectangle(exit.x, exit.y, 48, 48).setDepth(2);
       border.setStrokeStyle(2, 0xc8973a, 0.6);
-
-      // Label
-      const label = this.add.text(exit.x, exit.y - 32, '→ EXIT', {
-        fontFamily: 'Satoshi, sans-serif',
-        fontSize: '10px',
-        color: '#c8973a',
-        alpha: 0.7,
+      this.add.text(exit.x, exit.y - 32, '→ EXIT', {
+        fontFamily: 'Satoshi, sans-serif', fontSize: '10px', color: '#c8973a', alpha: 0.7,
       }).setOrigin(0.5).setDepth(2);
-
-      // Pulse tween
       this.tweens.add({ targets: [zone, border], alpha: { from:0.12, to:0.35 }, duration: 1200, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
-
       this.exitZones.push({ zone, targetAreaId: exit.targetAreaId, x: exit.x, y: exit.y });
     });
   }
@@ -824,11 +681,11 @@ class GameScene extends Phaser.Scene {
     this._handleSkillKeys();
     this._updateDash(dt);
     this._updateMonsters(dt);
+    this._updateProjectiles(dt);   // ← replaces _updateAttackArc
     this._updateDamageTexts(dt);
     this._updateParticles(dt);
     this._updateAutoAttack(dt);
     this._updateSoulRegen(dt);
-    this._updateAttackArc(dt);
     this._checkExitZones();
     this._syncMonsterBars();
   }
@@ -839,52 +696,36 @@ class GameScene extends Phaser.Scene {
       this._fps = Math.round(this._fpsFrames * 1000 / (time - this._fpsLast));
       this._fpsFrames = 0;
       this._fpsLast = time;
-      const p = window.GameState.player;
+      const p  = window.GameState.player;
       const el = document.getElementById('debug-overlay');
-      if (el) el.textContent = `FPS:${this._fps}  Monsters:${this.monsters.filter(m=>!m.dead).length}  Player:(${Math.floor(this.player.x)},${Math.floor(this.player.y)})  HP:${Math.ceil(p.currentHP)}/${p.maxHP}`;
+      if (el) el.textContent = `FPS:${this._fps}  Monsters:${this.monsters.filter(m=>!m.dead).length}  Projectiles:${this.projectiles.length}  HP:${Math.ceil(p.currentHP)}/${p.maxHP}`;
     }
   }
 
   _handlePlayerMovement(dt) {
     if (this.inputFrozen || this.dashActive) return;
-
     const c  = this.cursors;
     const w  = this.wasd;
     let vx = 0, vy = 0;
-
     if (c.left.isDown  || w.left.isDown)  vx -= 1;
     if (c.right.isDown || w.right.isDown) vx += 1;
     if (c.up.isDown    || w.up.isDown)    vy -= 1;
     if (c.down.isDown  || w.down.isDown)  vy += 1;
-
     if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
 
-    const speed = PLAYER_SPEED;
-    const nx = this.player.x + vx * speed * dt;
-    const ny = this.player.y + vy * speed * dt;
-
-    const pw = 2400; const ph = 2400;
-    const cx = Phaser.Math.Clamp(nx, 16, pw - 16);
-    const cy = Phaser.Math.Clamp(ny, 16, ph - 16);
-
-    // Obstacle collision (simplified — skip tile that contains target pos)
+    const nx = Phaser.Math.Clamp(this.player.x + vx * PLAYER_SPEED * dt, 16, 2400 - 16);
+    const ny = Phaser.Math.Clamp(this.player.y + vy * PLAYER_SPEED * dt, 16, 2400 - 16);
     let blocked = false;
     for (const tile of this.solidTiles) {
-      if (tile.contains(cx, cy)) { blocked = true; break; }
+      if (tile.contains(nx, ny)) { blocked = true; break; }
     }
-    if (!blocked) { this.player.x = cx; this.player.y = cy; }
+    if (!blocked) { this.player.x = nx; this.player.y = ny; }
 
-    // Rotate player direction graphic
     if (vx !== 0 || vy !== 0) {
       this.player.rotation = Math.atan2(vy, vx) + Math.PI / 2;
     }
-
-    // Update shadow & glow positions
     this.playerShadow.setPosition(this.player.x, this.player.y + 12);
     this.playerGlow.setPosition(this.player.x, this.player.y);
-
-    // Sync GameState (position tracked inside Phaser graphics object)
-    // GameState has player position implicitly via this.player.x/y
   }
 
   _handleSkillKeys() {
@@ -898,20 +739,20 @@ class GameScene extends Phaser.Scene {
     if (justDown(sk.k6)) this._activateSkillSlot(5);
   }
 
+  /* ────── Skill Activation → fires projectile(s) ─────────────────── */
   _activateSkillSlot(slotIndex) {
     if (this.inputFrozen) return;
-    const p = window.GameState.player;
+    const p     = window.GameState.player;
     const skill = p.skills[slotIndex];
     if (!skill) return;
     if (skillCooldowns[slotIndex] > 0) return;
 
-    // Soul cost check
     if (skill.soulCost > 0 && p.currentSoul < skill.soulCost) {
       this._spawnFloatingText(this.player.x, this.player.y - 20, 'No Soul', 0x4466aa);
       return;
     }
 
-    // Dash skill special handling
+    // Dash — unchanged
     if (skill.isDash) {
       this._triggerDash(skill);
       p.currentSoul -= skill.soulCost;
@@ -921,40 +762,43 @@ class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Deduct soul
     p.currentSoul -= skill.soulCost;
     updateHUD();
 
-    // Find targets
-    const targets = this._getSkillTargets(skill);
-    if (targets.length === 0 && skill.range > 0) {
-      // Swing anyway for visual feedback
-    }
+    // Get mouse world position
+    const ptr    = this.input.activePointer;
+    const cam    = this.cameras.main;
+    const worldX = ptr.x / cam.zoom + cam.scrollX;
+    const worldY = ptr.y / cam.zoom + cam.scrollY;
 
-    // Apply damage to targets
     const rawDmg = calcSkillDamage(skill, p.stats);
-    const hitTargets = [];
+    const { finalDamage, isCrit } = applyDamageToTarget(rawDmg, skill, 0, 9999);
 
-    targets.forEach(monster => {
-      const { finalDamage, isCrit } = applyDamageToTarget(rawDmg, skill, 0, monster.currentHP);
-      this._damageMonster(monster, finalDamage, isCrit, skill);
-      hitTargets.push(monster.id);
-    });
-
-    // Attack arc visual
-    this._showAttackArc(skill);
-
-    // Skill effect particle
-    if (skill.type === 'magical' && skill.aoe) {
-      this._spawnSoulPulseVFX(this.player.x, this.player.y, skill.aoeRadius);
+    if (skill.aoe) {
+      // Soul Pulse — 8 radial projectiles in a full ring
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        this._fireProjectile(
+          this.player.x, this.player.y,
+          Math.cos(angle), Math.sin(angle),
+          skill, finalDamage, isCrit
+        );
+      }
+    } else {
+      // Single aimed projectile toward cursor
+      let dx = worldX - this.player.x;
+      let dy = worldY - this.player.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      this._fireProjectile(
+        this.player.x, this.player.y,
+        dx / len, dy / len,
+        skill, finalDamage, isCrit
+      );
     }
 
-    // Set cooldown
     skillCooldowns[slotIndex] = skill.cooldown;
+    window.GameEventBus.emit('skill:used', { skillId: skill.id, targets: [] });
 
-    window.GameEventBus.emit('skill:used', { skillId: skill.id, targets: hitTargets });
-
-    // Highlight slot
     const slotEl = document.getElementById(`slot-${slotIndex}`);
     if (slotEl) {
       slotEl.classList.add('active');
@@ -962,25 +806,137 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  _getSkillTargets(skill) {
-    if (skill.isDash) return [];
-    const alive = this.monsters.filter(m => !m.dead);
-    if (alive.length === 0) return [];
+  /* ────── Projectile spawning ─────────────────────────────────────── */
+  _fireProjectile(ox, oy, dirX, dirY, skill, damage, isCrit) {
+    const isMagical = skill.type === 'magical';
+    const speed     = skill.projectileSpeed || (isMagical ? 300 : 420);
+    const range     = skill.range || 220;
 
-    if (skill.aoe) {
-      // All monsters within aoeRadius
-      return alive.filter(m => {
-        const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, m.x, m.y);
-        return d <= skill.aoeRadius;
-      });
+    const gfx = this.add.graphics().setDepth(13);
+    this._drawProjectileGraphic(gfx, skill);
+
+    // Orient graphic to travel direction
+    gfx.rotation = Math.atan2(dirY, dirX) + (isMagical ? 0 : Math.PI / 2);
+    gfx.x = ox;
+    gfx.y = oy;
+
+    this.projectiles.push({
+      gfx, skill, damage, isCrit,
+      x: ox, y: oy,
+      vx: dirX, vy: dirY,
+      speed, range,
+      distTravelled: 0,
+      dead: false,
+    });
+  }
+
+  _drawProjectileGraphic(gfx, skill) {
+    gfx.clear();
+    if (skill.type === 'magical') {
+      // Soul orb — glowing cyan circle
+      gfx.fillStyle(0x33aaee, 0.35);
+      gfx.fillCircle(0, 0, 9);
+      gfx.fillStyle(0x66ddff, 0.85);
+      gfx.fillCircle(0, 0, 5);
+      gfx.fillStyle(0xeefaff, 1.0);
+      gfx.fillCircle(0, 0, 2);
     } else {
-      // Nearest within range
-      let nearest = null, nearestDist = Infinity;
-      alive.forEach(m => {
-        const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, m.x, m.y);
-        if (d <= (skill.range || ATTACK_RANGE) && d < nearestDist) { nearest = m; nearestDist = d; }
+      // Sword bolt — bright elongated slash
+      // Outer glow trail
+      gfx.fillStyle(0xffcc44, 0.25);
+      gfx.fillRect(-3, -14, 6, 14);
+      // Main body
+      gfx.fillStyle(0xffe577, 0.95);
+      gfx.fillRect(-2, -12, 4, 10);
+      // Sharp tip
+      gfx.fillStyle(0xffffff, 1.0);
+      gfx.fillTriangle(0, -14, -2, -10, 2, -10);
+      // Base flare
+      gfx.fillStyle(0xffaa22, 0.6);
+      gfx.fillRect(-2, -2, 4, 4);
+    }
+  }
+
+  /* ────── Projectile update loop ──────────────────────────────────── */
+  _updateProjectiles(dt) {
+    const alive = this.monsters.filter(m => !m.dead);
+
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const proj = this.projectiles[i];
+      if (proj.dead) {
+        proj.gfx.destroy();
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
+      // Move
+      const step = proj.speed * dt;
+      proj.x += proj.vx * step;
+      proj.y += proj.vy * step;
+      proj.distTravelled += step;
+      proj.gfx.x = proj.x;
+      proj.gfx.y = proj.y;
+
+      // Out of range
+      if (proj.distTravelled >= proj.range) {
+        proj.dead = true;
+        continue;
+      }
+
+      // Out of world bounds
+      if (proj.x < 0 || proj.x > 2400 || proj.y < 0 || proj.y > 2400) {
+        proj.dead = true;
+        continue;
+      }
+
+      // Collision vs monsters
+      let hit = false;
+      for (const monster of alive) {
+        if (monster.dead) continue;
+        const dist = Phaser.Math.Distance.Between(proj.x, proj.y, monster.x, monster.y);
+        if (dist < 13) {
+          this._damageMonster(monster, proj.damage, proj.isCrit, proj.skill);
+          this._spawnImpactVFX(proj.x, proj.y, proj.skill.type === 'magical' ? 0x66ddff : 0xffe577);
+          proj.dead = true;
+          hit = true;
+          break;
+        }
+      }
+    }
+  }
+
+  /* ────── Impact flash VFX ────────────────────────────────────────── */
+  _spawnImpactVFX(x, y, color) {
+    // Central flash
+    const flash = this.add.graphics().setDepth(14);
+    flash.fillStyle(color, 0.9);
+    flash.fillCircle(0, 0, 7);
+    flash.x = x; flash.y = y;
+    this.tweens.add({
+      targets: flash,
+      scaleX: 2.5, scaleY: 2.5, alpha: 0,
+      duration: 180,
+      ease: 'Quad.easeOut',
+      onComplete: () => flash.destroy(),
+    });
+
+    // 4 tiny spark particles
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
+      const dist  = Phaser.Math.Between(8, 20);
+      const spark = this.add.graphics().setDepth(14);
+      spark.fillStyle(color, 0.8);
+      spark.fillCircle(0, 0, Phaser.Math.Between(1, 3));
+      spark.x = x; spark.y = y;
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        alpha: 0, scaleX: 0.3, scaleY: 0.3,
+        duration: Phaser.Math.Between(120, 240),
+        ease: 'Quad.easeOut',
+        onComplete: () => spark.destroy(),
       });
-      return nearest ? [nearest] : [];
     }
   }
 
@@ -990,82 +946,59 @@ class GameScene extends Phaser.Scene {
     this._spawnFloatingText(monster.x, monster.y - 16, isCrit ? `${amount}!` : `${amount}`, color);
 
     window.GameEventBus.emit('monster:damaged', {
-      monsterId: monster.id,
-      amount,
-      currentHP: monster.currentHP,
+      monsterId: monster.id, amount, currentHP: monster.currentHP,
     });
 
-    // Stagger visual
     this.tweens.add({ targets: monster.gfx, x: monster.x + Phaser.Math.Between(-5, 5), duration: 60, yoyo: true });
 
-    if (monster.currentHP <= 0) {
-      this._killMonster(monster);
-    }
+    if (monster.currentHP <= 0) this._killMonster(monster);
   }
 
   _killMonster(monster) {
     if (monster.dead) return;
-    monster.dead = true;
+    monster.dead  = true;
     monster.state = 'dead';
-
-    // Remove from GameState
     window.GameState.monstersAlive = window.GameState.monstersAlive.filter(m => m.id !== monster.id);
-
     window.GameEventBus.emit('monster:died', {
-      monster: { ...monster },
-      position: { x: monster.x, y: monster.y },
+      monster: { ...monster }, position: { x: monster.x, y: monster.y },
     });
-
-    // XP
     grantXP(monster.xpReward);
-
-    // Death VFX
     this._spawnDeathVFX(monster.x, monster.y, monster.color);
-
-    // Fade out graphic
     this.tweens.add({
       targets: [monster.gfx, monster.shadow],
       alpha: 0, scaleX: 1.5, scaleY: 1.5,
       duration: 350, ease: 'Quad.easeOut',
-      onComplete: () => {
-        monster.gfx.destroy();
-        monster.shadow.destroy();
-      }
+      onComplete: () => { monster.gfx.destroy(); monster.shadow.destroy(); },
     });
   }
 
-  /* ────── Auto-attack (hold LMB) ──────────────────────────────────── */
+  /* ────── Auto-attack (hold / click LMB) ─────────────────────────── */
   _onPointerDown(pointer) {
     if (this.inputFrozen) return;
     this._activateSkillSlot(0);
   }
   _onPointerHold(pointer) {
     if (!pointer.isDown || this.inputFrozen) return;
-    // auto attack handled via autoAttackTimer
   }
 
   _updateAutoAttack(dt) {
     if (this.inputFrozen) return;
     this.autoAttackTimer += dt;
     if (this.autoAttackTimer < 0.5) return;
-
     if (this.input.activePointer.isDown) {
       this.autoAttackTimer = 0;
       this._activateSkillSlot(0);
     }
   }
 
-  /* ────── Cooldown ticking ────────────────────────────────────────── */
+  /* ────── Soul regen & cooldowns ──────────────────────────────────── */
   _updateSoulRegen(dt) {
     const p = window.GameState.player;
     if (p.currentSoul < p.maxSoul) {
       p.currentSoul = Math.min(p.maxSoul, p.currentSoul + SOUL_REGEN_RATE * dt);
-      // throttle HUD update
       this.soulRegenTimer = (this.soulRegenTimer || 0) + dt;
       if (this.soulRegenTimer >= 0.5) { this.soulRegenTimer = 0; updateHUD(); }
     }
-
-    // Update skill cooldowns
     for (let i = 0; i < skillCooldowns.length; i++) {
       if (skillCooldowns[i] > 0) {
         skillCooldowns[i] = Math.max(0, skillCooldowns[i] - dt);
@@ -1076,8 +1009,7 @@ class GameScene extends Phaser.Scene {
 
   /* ────── Dash mechanic ───────────────────────────────────────────── */
   _triggerDash(skill) {
-    const c  = this.cursors;
-    const w  = this.wasd;
+    const c = this.cursors, w = this.wasd;
     let vx = 0, vy = 0;
     if (c.left.isDown  || w.left.isDown)  vx -= 1;
     if (c.right.isDown || w.right.isDown) vx += 1;
@@ -1086,13 +1018,10 @@ class GameScene extends Phaser.Scene {
     if (vx === 0 && vy === 0) { vx = 0; vy = -1; }
     const len = Math.sqrt(vx*vx + vy*vy);
     vx /= len; vy /= len;
-
     this.dashActive = true;
     this.dashTimer  = skill.dashDuration;
     this.dashVelX   = vx * (skill.dashDistance / skill.dashDuration);
     this.dashVelY   = vy * (skill.dashDistance / skill.dashDuration);
-
-    // Visual: brief invincibility glow
     this.playerGlow.setAlpha(0.6);
     this._drawPlayerGraphic(this.player, true);
     this._spawnDashVFX(this.player.x, this.player.y);
@@ -1118,44 +1047,31 @@ class GameScene extends Phaser.Scene {
   /* ────── Monster AI ──────────────────────────────────────────────── */
   _updateMonsters(dt) {
     const px = this.player.x, py = this.player.y;
-
     this.monsters.forEach(monster => {
       if (monster.dead) return;
-
       const dist = Phaser.Math.Distance.Between(px, py, monster.x, monster.y);
       const prevState = monster.state;
 
-      // State transitions
-      if (monster.state === 'idle' && dist < monster.aggroRange) {
-        monster.state = 'chase';
-      }
-      if (monster.state === 'chase' && dist <= monster.attackRange) {
-        monster.state = 'attack';
-      }
-      if (monster.state === 'attack' && dist > monster.attackRange * 1.5) {
-        monster.state = 'chase';
-      }
+      if (monster.state === 'idle'   && dist < monster.aggroRange)             monster.state = 'chase';
+      if (monster.state === 'chase'  && dist <= monster.attackRange)           monster.state = 'attack';
+      if (monster.state === 'attack' && dist > monster.attackRange * 1.5)     monster.state = 'chase';
 
-      // Re-draw if state changed (aggro indication)
       if (prevState !== monster.state && (monster.state === 'chase' || monster.state === 'attack')) {
         this._drawMonsterGraphic(monster.gfx, monster.color, true, monster.name);
       } else if (prevState !== 'idle' && monster.state === 'idle') {
         this._drawMonsterGraphic(monster.gfx, monster.color, false, monster.name);
       }
 
-      // Movement
       if (monster.state === 'chase' || monster.state === 'attack') {
         const dx = px - monster.x, dy = py - monster.y;
         const len = Math.sqrt(dx*dx + dy*dy);
         if (len > 0 && monster.state === 'chase') {
-          const spd = monster.speed;
-          monster.vx = (dx / len) * spd;
-          monster.vy = (dy / len) * spd;
+          monster.vx = (dx / len) * monster.speed;
+          monster.vy = (dy / len) * monster.speed;
         } else {
           monster.vx = 0; monster.vy = 0;
         }
       } else {
-        // Idle wandering
         if (!monster.idleTimer || monster.idleTimer <= 0) {
           monster.idleTimer = Phaser.Math.FloatBetween(1.5, 4);
           monster.idleVx = Phaser.Math.FloatBetween(-0.3, 0.3);
@@ -1166,27 +1082,21 @@ class GameScene extends Phaser.Scene {
         monster.vy = monster.idleVy * 20;
       }
 
-      // Apply movement
       if (monster.vx !== 0 || monster.vy !== 0) {
         const nx = Phaser.Math.Clamp(monster.x + monster.vx * dt, 16, 2400 - 16);
         const ny = Phaser.Math.Clamp(monster.y + monster.vy * dt, 16, 2400 - 16);
-
         let blocked = false;
         for (const tile of this.solidTiles) {
           if (tile.contains(nx, ny)) { blocked = true; break; }
         }
         if (!blocked) { monster.x = nx; monster.y = ny; }
-
-        monster.gfx.x   = monster.x;
-        monster.gfx.y   = monster.y;
+        monster.gfx.x = monster.x; monster.gfx.y = monster.y;
         monster.shadow.setPosition(monster.x, monster.y + 10);
       }
 
-      // Attack player
       if (monster.state === 'attack' && !this.dashActive) {
         monster.attackTimer += dt;
-        const interval = 1 / monster.attackSpeed;
-        if (monster.attackTimer >= interval) {
+        if (monster.attackTimer >= 1 / monster.attackSpeed) {
           monster.attackTimer = 0;
           this._monsterAttackPlayer(monster);
         }
@@ -1197,20 +1107,13 @@ class GameScene extends Phaser.Scene {
   }
 
   _monsterAttackPlayer(monster) {
-    const p  = window.GameState.player;
+    const p   = window.GameState.player;
     const dmg = Math.max(1, monster.damage - Math.floor(p.stats.vit * 0.5));
     p.currentHP = Math.max(0, p.currentHP - dmg);
-
     this._spawnFloatingText(this.player.x, this.player.y - 20, `-${dmg}`, 0xff4444);
     this._flashPlayerHit();
-
-    window.GameEventBus.emit('player:damaged', {
-      amount: dmg,
-      currentHP: p.currentHP,
-      maxHP: p.maxHP,
-    });
+    window.GameEventBus.emit('player:damaged', { amount: dmg, currentHP: p.currentHP, maxHP: p.maxHP });
     updateHUD();
-
     if (p.currentHP <= 0) this._playerDeath();
   }
 
@@ -1219,8 +1122,7 @@ class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: this.playerGlow,
       alpha: { from: 0.4, to: 0.08 },
-      duration: 250,
-      ease: 'Quad.easeOut',
+      duration: 250, ease: 'Quad.easeOut',
       onComplete: () => this.playerGlow.setFillStyle(0x6633cc, 0.08),
     });
   }
@@ -1228,31 +1130,24 @@ class GameScene extends Phaser.Scene {
   /* ────── Player Death / Respawn ──────────────────────────────────── */
   _playerDeath() {
     if (this.playerDead) return;
-    this.playerDead = true;
+    this.playerDead  = true;
     this.inputFrozen = true;
-
-    // Death VFX
     this._spawnDeathVFX(this.player.x, this.player.y, 0x7744cc);
-
     const overlay = document.getElementById('death-overlay');
     if (overlay) overlay.classList.add('show');
-
     window.GameEventBus.emit('player:died', {});
   }
 
   _respawnPlayer() {
     const p = window.GameState.player;
-    p.currentHP = p.maxHP;
+    p.currentHP   = p.maxHP;
     p.currentSoul = p.maxSoul;
-
     this.player.x = 240;
     this.player.y = 1200;
     this.playerDead  = false;
     this.inputFrozen = false;
-
     const overlay = document.getElementById('death-overlay');
     if (overlay) overlay.classList.remove('show');
-
     updateHUD();
     window.GameEventBus.emit('player:respawned', {});
   }
@@ -1261,18 +1156,15 @@ class GameScene extends Phaser.Scene {
   _spawnFloatingText(x, y, text, color = 0xffffff) {
     const layer = document.getElementById('fct-layer');
     if (!layer) return;
-
     const cam    = this.cameras.main;
     const canvas = this.sys.game.canvas;
     const rect   = canvas.getBoundingClientRect();
     const scaleX = rect.width  / canvas.width;
     const scaleY = rect.height / canvas.height;
-
     const sx = (x - cam.scrollX) * cam.zoom * scaleX + rect.left;
     const sy = (y - cam.scrollY) * cam.zoom * scaleY + rect.top;
-
     const hex = '#' + color.toString(16).padStart(6, '0');
-    const el = document.createElement('div');
+    const el  = document.createElement('div');
     el.style.cssText = `
       position:fixed;left:${sx}px;top:${sy}px;
       font:bold 13px 'Barlow Condensed',sans-serif;
@@ -1287,105 +1179,45 @@ class GameScene extends Phaser.Scene {
   }
 
   _spawnDeathVFX(x, y, color) {
-    // Burst of small particles
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2;
       const dist  = Phaser.Math.Between(20, 60);
       const px    = x + Math.cos(angle) * dist;
       const py    = y + Math.sin(angle) * dist;
-
-      const p = this.add.graphics().setDepth(15);
+      const p     = this.add.graphics().setDepth(15);
       p.fillStyle(color, 0.9);
       p.fillCircle(0, 0, Phaser.Math.Between(2, 5));
       p.x = x; p.y = y;
-
       this.tweens.add({
-        targets: p,
-        x: px, y: py,
-        alpha: 0,
-        scaleX: 0.2, scaleY: 0.2,
-        duration: Phaser.Math.Between(300, 600),
-        ease: 'Quad.easeOut',
+        targets: p, x: px, y: py, alpha: 0, scaleX: 0.2, scaleY: 0.2,
+        duration: Phaser.Math.Between(300, 600), ease: 'Quad.easeOut',
         onComplete: () => p.destroy(),
       });
     }
   }
 
   _spawnDashVFX(x, y) {
-    // Leave an afterimage trail
     const trail = this.add.graphics().setDepth(9);
     trail.fillStyle(0x7744cc, 0.4);
     trail.fillCircle(0, 0, 12);
     trail.x = x; trail.y = y;
     this.tweens.add({
-      targets: trail,
-      alpha: 0, scaleX: 1.5, scaleY: 1.5,
-      duration: 250,
-      ease: 'Quad.easeOut',
+      targets: trail, alpha: 0, scaleX: 1.5, scaleY: 1.5,
+      duration: 250, ease: 'Quad.easeOut',
       onComplete: () => trail.destroy(),
     });
   }
 
-  _spawnSoulPulseVFX(x, y, radius) {
-    const ring = this.add.graphics().setDepth(12);
-    ring.lineStyle(2, 0x88ccff, 0.8);
-    ring.strokeCircle(0, 0, 1);
-    ring.x = x; ring.y = y;
-
-    this.tweens.add({
-      targets: ring,
-      scaleX: radius / 1, scaleY: radius / 1,
-      alpha: 0,
-      duration: 400,
-      ease: 'Quad.easeOut',
-      onComplete: () => ring.destroy(),
-    });
-  }
-
-  /* ────── Attack Arc ──────────────────────────────────────────────── */
-  _showAttackArc(skill) {
-    this.attackArc.clear();
-    const range = skill.range || ATTACK_RANGE;
-    this.attackArc.x = this.player.x;
-    this.attackArc.y = this.player.y;
-
-    if (skill.aoe) {
-      this.attackArc.lineStyle(1, 0x88ccff, 0.4);
-      this.attackArc.strokeCircle(0, 0, skill.aoeRadius);
-    } else {
-      this.attackArc.lineStyle(1, 0xffaa44, 0.35);
-      this.attackArc.strokeCircle(0, 0, range);
-    }
-    this.attackArcTimer = 0.25;
-  }
-
-  _updateAttackArc(dt) {
-    if (this.attackArcTimer > 0) {
-      this.attackArcTimer -= dt;
-      if (this.attackArcTimer <= 0) this.attackArc.clear();
-    }
-    // Keep arc centered on player
-    this.attackArc.x = this.player.x;
-    this.attackArc.y = this.player.y;
-  }
-
   /* ────── Damage texts & particles ───────────────────────────────── */
-  _updateDamageTexts(dt) {
-    // Floating combat text is HTML-based (see _spawnFloatingText)
-    // Nothing to update here for canvas-based damage texts
-  }
-
-  _updateParticles(dt) {
-    // Particles are managed via Phaser Tweens — auto-cleaned on complete
-  }
+  _updateDamageTexts(dt) {}
+  _updateParticles(dt) {}
 
   /* ────── Exit zone check ─────────────────────────────────────────── */
   _checkExitZones() {
     if (!this.exitZones) return;
     const px = this.player.x, py = this.player.y;
     this.exitZones.forEach(ez => {
-      const dist = Phaser.Math.Distance.Between(px, py, ez.x, ez.y);
-      if (dist < 32) {
+      if (Phaser.Math.Distance.Between(px, py, ez.x, ez.y) < 32) {
         this._transitionToArea(ez.targetAreaId);
       }
     });
@@ -1394,39 +1226,32 @@ class GameScene extends Phaser.Scene {
   _transitionToArea(targetAreaId) {
     if (this._transitioning) return;
     this._transitioning = true;
-
     const fade = document.getElementById('area-fade');
     if (fade) fade.classList.add('fade-in');
 
     setTimeout(() => {
       this.areaId = targetAreaId;
       window.GameState.currentArea = targetAreaId;
-
       const area = window.WorldData.areas[targetAreaId];
       if (area) {
         const worldW = MAP_TILES_W * TILE_SIZE;
         const worldH = MAP_TILES_H * TILE_SIZE;
-
-        // Rebuild tilemap
         this.children.removeAll(true);
         this._monsterBarEls = {};
-        this.exitZones = [];
-        this.monsters = [];
+        this.exitZones  = [];
+        this.monsters   = [];
+        this.projectiles = [];
         window.GameState.monstersAlive = [];
         const bars = document.getElementById('monster-bars');
         if (bars) bars.innerHTML = '';
-
         this._buildTilemap(worldW, worldH, area.tileVariant || 'dungeon');
         this._createPlayer(worldW, worldH);
         this.spawnMonsters(targetAreaId);
         this._createExitZones(area);
-
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-
         window.GameEventBus.emit('area:entered', { areaId: targetAreaId, name: area.name });
       }
-
       if (fade) fade.classList.remove('fade-in');
       this._transitioning = false;
     }, 500);
@@ -1439,9 +1264,7 @@ class GameScene extends Phaser.Scene {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   10. Phaser Game Config — Scale.RESIZE owns canvas dimensions.
-       Do NOT set width/height alongside Scale.RESIZE; they conflict
-       and cause canvas.width != clientWidth, breaking screen-space math.
+   10. Phaser Game Config
    ══════════════════════════════════════════════════════════════════════ */
 const phaserConfig = {
   type: Phaser.AUTO,
