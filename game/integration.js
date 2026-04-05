@@ -214,11 +214,11 @@
 
   bus.on('core:fused', () => _updateCharacterSheet());
 
-  // ─── 5. Populate prestige selects from real book/core data ──────────────
-  document.addEventListener('DOMContentLoaded', () => {
-    _populatePrestigeSelects();
-    _updateCharacterSheet();
-  });
+  // ─── 5. Init: populate selects + sync character sheet ───────────────────
+  // Scripts load at the bottom of <body> so the DOM is already parsed here.
+  // Using DOMContentLoaded would be missed on fast/cached loads — call directly.
+  _populatePrestigeSelects();
+  _updateCharacterSheet();
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -261,14 +261,12 @@
     const soulSel    = document.getElementById('prestige-soul-select');
     const coreSel    = document.getElementById('prestige-core-select');
 
-    if (gd.BOOKS_LIST) {
-      gd.BOOKS_LIST.filter(b => b.type === 'martial').forEach(b => {
-        if (martialSel) martialSel.innerHTML += `<option value="${b.id}">${b.name}</option>`;
-      });
-      gd.BOOKS_LIST.filter(b => b.type === 'soul').forEach(b => {
-        if (soulSel) soulSel.innerHTML += `<option value="${b.id}">${b.name}</option>`;
-      });
-    }
+    gd.BOOKS_LIST.filter(b => b.type === 'martial').forEach(b => {
+      if (martialSel) martialSel.innerHTML += `<option value="${b.id}">${b.name}</option>`;
+    });
+    gd.BOOKS_LIST.filter(b => b.type === 'soul').forEach(b => {
+      if (soulSel) soulSel.innerHTML += `<option value="${b.id}">${b.name}</option>`;
+    });
 
     const player = window.GameState && window.GameState.player;
     if (player && player.ownedCores && coreSel) {
