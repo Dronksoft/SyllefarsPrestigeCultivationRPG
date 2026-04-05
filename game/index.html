@@ -370,14 +370,14 @@
 
 <!--
   SCRIPT LOAD ORDER (critical):
-    1. step4  — WorldData, QuestManager (no deps)
-    2. step2  — GameData, LootEngine, PrestigeManager (retries for GameEventBus)
-    3. engine — GameEventBus, GameState, Phaser game
-    4. ui     — Panel system, EventBus listeners (uses || guards for stubs)
-    5. integration — wires everything together, patches remaining mismatches
+    1. world-content  — WorldData, QuestManager (no deps)
+    2. data-loot      — GameData, LootEngine, PrestigeManager (retries for GameEventBus)
+    3. engine         — GameEventBus, GameState, Phaser game
+    4. ui             — Panel system, EventBus listeners (uses || guards for stubs)
+    5. integration    — wires everything together, patches remaining mismatches
 -->
-<script src="../step4-world-content.js"></script>
-<script src="../step2-data-loot.js"></script>
+<script src="world-content.js"></script>
+<script src="data-loot.js"></script>
 <script src="engine.js"></script>
 <script src="ui.js"></script>
 <script src="integration.js"></script>
