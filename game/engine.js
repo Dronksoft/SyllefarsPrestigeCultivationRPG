@@ -46,7 +46,7 @@ window.GameState = {
     inventory: [],
     soulForgedGear: [],
   },
-  currentArea: 'ashen_hollow',
+  currentArea: 'ashveil_ruins',
   monstersAlive: [],
   sessionLoot: [],
   questProgress: {},
@@ -72,9 +72,9 @@ window.LootEngine = window.LootEngine || {
 // HOOK: Agent 4 — WorldData (area definitions, spawn tables, boss encounters)
 window.WorldData = window.WorldData || {
   areas: {
-    ashen_hollow: {
-      id: 'ashen_hollow',
-      name: 'The Ashen Hollow',
+    ashveil_ruins: {
+      id: 'ashveil_ruins',
+      name: 'Ashveil Ruins',
       width: 2400,
       height: 2400,
       tileVariant: 'dungeon',
@@ -93,7 +93,7 @@ window.WorldData = window.WorldData || {
       width: 2400,
       height: 2400,
       tileVariant: 'wasteland',
-      exits: [{ x: 60, y: 1200, targetAreaId: 'ashen_hollow' }],
+      exits: [{ x: 60, y: 1200, targetAreaId: 'ashveil_ruins' }],
       spawns: [
         { x: 600,  y: 600,  type: 'ash_crawler',    count: 3 },
         { x: 1000, y: 400,  type: 'ember_wraith',   count: 2 },
@@ -422,7 +422,7 @@ class GameScene extends Phaser.Scene {
   }
 
   create() {
-    const areaData = window.WorldData.areas[this.areaId] || window.WorldData.areas['ashen_hollow'];
+    const areaData = window.WorldData.areas[this.areaId] || window.WorldData.areas['ashveil_ruins'];
     this.areaData  = areaData;
     const worldW   = MAP_TILES_W * TILE_SIZE;
     const worldH   = MAP_TILES_H * TILE_SIZE;
@@ -1291,7 +1291,7 @@ class GameScene extends Phaser.Scene {
 
       this._buildTilemap(MAP_TILES_W * TILE_SIZE, MAP_TILES_H * TILE_SIZE, areaData.tileVariant);
       this._createPlayer(MAP_TILES_W * TILE_SIZE, MAP_TILES_H * TILE_SIZE);
-      this.player.x = (targetAreaId === 'ashen_hollow') ? 2200 : 200;
+      this.player.x = (targetAreaId === 'ashveil_ruins') ? 2200 : 200;
       this.player.y = 1200;
       this.playerShadow.setPosition(this.player.x, this.player.y + 12);
       this.playerGlow.setPosition(this.player.x, this.player.y);
