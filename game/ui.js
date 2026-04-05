@@ -370,13 +370,7 @@ function demoEvent(type){
 ═════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded',()=>{
   updateHUD();renderBooks();renderCores();renderStash();
-  // Open panels for visual showcase
-  setTimeout(()=>{
-    document.getElementById('panel-inventory').classList.add('panel-open');
-    document.getElementById('panel-books').classList.add('panel-open');
-    document.getElementById('panel-cores').classList.add('panel-open');
-    document.getElementById('panel-character').classList.add('panel-open');
-  },200);
+  // Panels start closed — player opens them with keybinds (C/I/B/K/P) or portrait click
 });
 
 /* GameData stub — Agent 2 populates this */
