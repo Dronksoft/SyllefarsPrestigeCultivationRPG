@@ -720,6 +720,27 @@
   };
 
   // ─────────────────────────────────────────────
+  //  STAT FORMULA HELPERS
+  //  These mirror the stubs in engine.js and must stay in sync.
+  //  engine.js calls window.GameData.calcMaxHP / calcMaxSoul on create()
+  //  and on level-up, so they must exist on the exposed GameData object.
+  // ─────────────────────────────────────────────
+
+  function calcMaxHP(vit, level) {
+    return 80 + vit * 4 + level * 5;
+  }
+
+  function calcMaxSoul(wis, level) {
+    return 40 + wis * 4 + level * 3;
+  }
+
+  function getStatBonuses(originId) {
+    const origin = ORIGINS[originId];
+    if (!origin) return { str:0, dex:0, vit:0, int:0, wis:0, luk:0 };
+    return { ...origin.baseStats };
+  }
+
+  // ─────────────────────────────────────────────
   //  EXPOSE window.GameData
   // ─────────────────────────────────────────────
 
@@ -738,6 +759,11 @@
     skills: {}, // Populated by Agent 1 — GameData.skills is a read reference
     catalysts: CATALYSTS,
     bookQualityMatrix: BOOK_QUALITY_MATRIX,
+
+    // Stat formulas — called by engine.js on create() and level-up
+    calcMaxHP,
+    calcMaxSoul,
+    getStatBonuses,
   };
 
   // ─────────────────────────────────────────────
