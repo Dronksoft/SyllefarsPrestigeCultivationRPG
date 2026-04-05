@@ -18,9 +18,23 @@
   <link rel="stylesheet" href="style-engine.css">
 
   <style>
-    /* Phaser canvas sits at the very bottom */
-    #game-container { position: fixed; inset: 0; z-index: 0; }
-    #game-container canvas { display: block; width: 100% !important; height: 100% !important; }
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #0d0b0e;
+    }
+
+    /* Phaser manages its own canvas size via Scale.RESIZE — do NOT override with CSS */
+    #game-container {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+    /* Let Phaser's canvas sit naturally — no width/height overrides */
+    #game-container canvas {
+      display: block;
+    }
 
     /* step3 HUD layer sits above Phaser */
     #hud-layer { z-index: 10; }
