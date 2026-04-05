@@ -114,23 +114,23 @@ const SKILL_DEFS = {
     id: 'basic_strike', name: 'Iron Strike', type: 'physical',
     icon: '⚔️', slotIndex: 0,
     cooldown: 0.5,   soulCost: 0,
-    range: 220,      aoe: false,  aoeRadius: 0,
+    range: 260,      aoe: false,  aoeRadius: 0,
     baseDamage: 10,  scalingStat: 'str', scalingFactor: 1.4,
     tags: ['melee', 'physical'],
     description: 'A focused strike that channels martial force.',
     passive: false,
-    projectileSpeed: 420,
+    projectileSpeed: 480,
   },
   soul_pulse: {
     id: 'soul_pulse', name: 'Soul Pulse', type: 'magical',
     icon: '💠', slotIndex: 1,
     cooldown: 2.0,   soulCost: 20,
-    range: 260,      aoe: true,   aoeRadius: 90,
+    range: 300,      aoe: true,   aoeRadius: 90,
     baseDamage: 18,  scalingStat: 'int', scalingFactor: 1.8,
     tags: ['ranged', 'magical', 'aoe'],
-    description: 'Releases condensed soul energy in a ring.',
+    description: 'Fires 8 soul orbs in a radial burst.',
     passive: false,
-    projectileSpeed: 300,
+    projectileSpeed: 280,
   },
   dash: {
     id: 'dash', name: 'Wind Step', type: 'physical',
@@ -347,7 +347,6 @@ const TILE_SIZE       = 32;
 const MAP_TILES_W     = 75;
 const MAP_TILES_H     = 75;
 const PLAYER_SPEED    = 140;
-const ATTACK_RANGE    = 90;
 const SOUL_REGEN_RATE = 3;
 
 const skillCooldowns = [0, 0, 0, 0, 0, 0];
@@ -357,7 +356,7 @@ class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
     this.player      = null;
     this.monsters    = [];
-    this.projectiles = [];   // ← ROTMG-style projectile pool
+    this.projectiles = [];   // ROTMG-style projectile pool
     this.damageTexts = [];
     this.particles   = [];
     this.playerDead  = false;
@@ -597,8 +596,6 @@ class GameScene extends Phaser.Scene {
 
   _drawMonsterGraphic(gfx, color, isAggro, name) {
     gfx.clear();
-    const darkColor = Phaser.Display.Color.IntegerToColor(color);
-    darkColor.darken(30);
     gfx.fillStyle(color);
     gfx.fillCircle(0, 0, 11);
     gfx.lineStyle(1.5, isAggro ? 0xff4444 : 0x000000, 0.6);
@@ -681,7 +678,7 @@ class GameScene extends Phaser.Scene {
     this._handleSkillKeys();
     this._updateDash(dt);
     this._updateMonsters(dt);
-    this._updateProjectiles(dt);   // ← replaces _updateAttackArc
+    this._updateProjectiles(dt);
     this._updateDamageTexts(dt);
     this._updateParticles(dt);
     this._updateAutoAttack(dt);
@@ -739,7 +736,7 @@ class GameScene extends Phaser.Scene {
     if (justDown(sk.k6)) this._activateSkillSlot(5);
   }
 
-  /* ────── Skill Activation → fires projectile(s) ─────────────────── */
+  /* ────── Skill Activation → fires projectile(s) toward cursor ───── */
   _activateSkillSlot(slotIndex) {
     if (this.inputFrozen) return;
     const p     = window.GameState.player;
@@ -765,17 +762,18 @@ class GameScene extends Phaser.Scene {
     p.currentSoul -= skill.soulCost;
     updateHUD();
 
-    // Get mouse world position
+    // World-space mouse position
     const ptr    = this.input.activePointer;
     const cam    = this.cameras.main;
     const worldX = ptr.x / cam.zoom + cam.scrollX;
     const worldY = ptr.y / cam.zoom + cam.scrollY;
 
+    // Pre-roll damage once per activation (all projectiles share same roll)
     const rawDmg = calcSkillDamage(skill, p.stats);
     const { finalDamage, isCrit } = applyDamageToTarget(rawDmg, skill, 0, 9999);
 
     if (skill.aoe) {
-      // Soul Pulse — 8 radial projectiles in a full ring
+      // Soul Pulse — 8 radial orbs in a full 360° ring
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
         this._fireProjectile(
@@ -785,7 +783,7 @@ class GameScene extends Phaser.Scene {
         );
       }
     } else {
-      // Single aimed projectile toward cursor
+      // Single aimed sword bolt toward cursor
       let dx = worldX - this.player.x;
       let dy = worldY - this.player.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -809,13 +807,13 @@ class GameScene extends Phaser.Scene {
   /* ────── Projectile spawning ─────────────────────────────────────── */
   _fireProjectile(ox, oy, dirX, dirY, skill, damage, isCrit) {
     const isMagical = skill.type === 'magical';
-    const speed     = skill.projectileSpeed || (isMagical ? 300 : 420);
-    const range     = skill.range || 220;
+    const speed     = skill.projectileSpeed || (isMagical ? 280 : 480);
+    const range     = skill.range || 260;
 
     const gfx = this.add.graphics().setDepth(13);
     this._drawProjectileGraphic(gfx, skill);
 
-    // Orient graphic to travel direction
+    // Orient the graphic — physical bolts point in travel direction, orbs are symmetric
     gfx.rotation = Math.atan2(dirY, dirX) + (isMagical ? 0 : Math.PI / 2);
     gfx.x = ox;
     gfx.y = oy;
@@ -830,46 +828,50 @@ class GameScene extends Phaser.Scene {
     });
   }
 
+  /* Draw the projectile visual (called once on spawn) */
   _drawProjectileGraphic(gfx, skill) {
     gfx.clear();
     if (skill.type === 'magical') {
-      // Soul orb — glowing cyan circle
-      gfx.fillStyle(0x33aaee, 0.35);
-      gfx.fillCircle(0, 0, 9);
-      gfx.fillStyle(0x66ddff, 0.85);
-      gfx.fillCircle(0, 0, 5);
-      gfx.fillStyle(0xeefaff, 1.0);
-      gfx.fillCircle(0, 0, 2);
-    } else {
-      // Sword bolt — bright elongated slash
-      // Outer glow trail
-      gfx.fillStyle(0xffcc44, 0.25);
-      gfx.fillRect(-3, -14, 6, 14);
-      // Main body
-      gfx.fillStyle(0xffe577, 0.95);
-      gfx.fillRect(-2, -12, 4, 10);
-      // Sharp tip
+      // Soul orb — layered glowing cyan sphere
+      gfx.fillStyle(0x33aaee, 0.30);
+      gfx.fillCircle(0, 0, 10);
+      gfx.fillStyle(0x55ccff, 0.75);
+      gfx.fillCircle(0, 0, 6);
+      gfx.fillStyle(0x99eeff, 0.95);
+      gfx.fillCircle(0, 0, 3);
       gfx.fillStyle(0xffffff, 1.0);
-      gfx.fillTriangle(0, -14, -2, -10, 2, -10);
-      // Base flare
-      gfx.fillStyle(0xffaa22, 0.6);
-      gfx.fillRect(-2, -2, 4, 4);
+      gfx.fillCircle(-1, -1, 1.2);
+    } else {
+      // Sword bolt — elongated kunai/slash shape, oriented upward (rotation handles direction)
+      // Glow trail
+      gfx.fillStyle(0xffcc44, 0.20);
+      gfx.fillRect(-4, -15, 8, 15);
+      // Main blade body
+      gfx.fillStyle(0xffe577, 0.95);
+      gfx.fillRect(-2, -13, 4, 11);
+      // Bright tip
+      gfx.fillStyle(0xffffff, 1.0);
+      gfx.fillTriangle(0, -15, -2, -10, 2, -10);
+      // Guard / base flare
+      gfx.fillStyle(0xffaa22, 0.70);
+      gfx.fillRect(-3, -2, 6, 3);
     }
   }
 
-  /* ────── Projectile update loop ──────────────────────────────────── */
+  /* ────── Projectile update — move, collide, expire ──────────────── */
   _updateProjectiles(dt) {
     const alive = this.monsters.filter(m => !m.dead);
 
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const proj = this.projectiles[i];
+
       if (proj.dead) {
         proj.gfx.destroy();
         this.projectiles.splice(i, 1);
         continue;
       }
 
-      // Move
+      // Advance position
       const step = proj.speed * dt;
       proj.x += proj.vx * step;
       proj.y += proj.vy * step;
@@ -877,69 +879,70 @@ class GameScene extends Phaser.Scene {
       proj.gfx.x = proj.x;
       proj.gfx.y = proj.y;
 
-      // Out of range
+      // Expire at max range
       if (proj.distTravelled >= proj.range) {
         proj.dead = true;
         continue;
       }
 
-      // Out of world bounds
+      // Expire out of world bounds
       if (proj.x < 0 || proj.x > 2400 || proj.y < 0 || proj.y > 2400) {
         proj.dead = true;
         continue;
       }
 
-      // Collision vs monsters
-      let hit = false;
+      // Hit detection — 13px radius vs each living monster
       for (const monster of alive) {
         if (monster.dead) continue;
         const dist = Phaser.Math.Distance.Between(proj.x, proj.y, monster.x, monster.y);
         if (dist < 13) {
           this._damageMonster(monster, proj.damage, proj.isCrit, proj.skill);
-          this._spawnImpactVFX(proj.x, proj.y, proj.skill.type === 'magical' ? 0x66ddff : 0xffe577);
+          this._spawnImpactVFX(
+            proj.x, proj.y,
+            proj.skill.type === 'magical' ? 0x66ddff : 0xffe577
+          );
           proj.dead = true;
-          hit = true;
           break;
         }
       }
     }
   }
 
-  /* ────── Impact flash VFX ────────────────────────────────────────── */
+  /* ────── Impact flash VFX on projectile hit ─────────────────────── */
   _spawnImpactVFX(x, y, color) {
-    // Central flash
+    // Central burst flash
     const flash = this.add.graphics().setDepth(14);
-    flash.fillStyle(color, 0.9);
+    flash.fillStyle(color, 0.90);
     flash.fillCircle(0, 0, 7);
     flash.x = x; flash.y = y;
     this.tweens.add({
       targets: flash,
-      scaleX: 2.5, scaleY: 2.5, alpha: 0,
-      duration: 180,
-      ease: 'Quad.easeOut',
+      scaleX: 2.6, scaleY: 2.6, alpha: 0,
+      duration: 180, ease: 'Quad.easeOut',
       onComplete: () => flash.destroy(),
     });
 
-    // 4 tiny spark particles
+    // 4 spark particles scatter outward
     for (let i = 0; i < 4; i++) {
-      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
-      const dist  = Phaser.Math.Between(8, 20);
+      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.6;
+      const dist  = Phaser.Math.Between(10, 22);
       const spark = this.add.graphics().setDepth(14);
-      spark.fillStyle(color, 0.8);
+      spark.fillStyle(color, 0.85);
       spark.fillCircle(0, 0, Phaser.Math.Between(1, 3));
       spark.x = x; spark.y = y;
       this.tweens.add({
         targets: spark,
         x: x + Math.cos(angle) * dist,
         y: y + Math.sin(angle) * dist,
-        alpha: 0, scaleX: 0.3, scaleY: 0.3,
-        duration: Phaser.Math.Between(120, 240),
+        alpha: 0, scaleX: 0.2, scaleY: 0.2,
+        duration: Phaser.Math.Between(110, 220),
         ease: 'Quad.easeOut',
         onComplete: () => spark.destroy(),
       });
     }
   }
 
+  /* ────── Damage a monster ────────────────────────────────────────── */
   _damageMonster(monster, amount, isCrit, skill) {
     monster.currentHP -= amount;
     const color = isCrit ? 0xffdd44 : (skill && skill.type === 'magical' ? 0x88ccff : 0xff4444);
@@ -972,7 +975,7 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  /* ────── Auto-attack (hold / click LMB) ─────────────────────────── */
+  /* ────── Auto-attack (hold / click LMB → fires bolt toward pointer) */
   _onPointerDown(pointer) {
     if (this.inputFrozen) return;
     this._activateSkillSlot(0);
@@ -991,7 +994,7 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  /* ────── Soul regen & cooldowns ──────────────────────────────────── */
+  /* ────── Soul regen & cooldown ticking ───────────────────────────── */
   _updateSoulRegen(dt) {
     const p = window.GameState.player;
     if (p.currentSoul < p.maxSoul) {
@@ -1007,7 +1010,7 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  /* ────── Dash mechanic ───────────────────────────────────────────── */
+  /* ────── Dash mechanic (unchanged) ──────────────────────────────── */
   _triggerDash(skill) {
     const c = this.cursors, w = this.wasd;
     let vx = 0, vy = 0;
@@ -1052,9 +1055,9 @@ class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(px, py, monster.x, monster.y);
       const prevState = monster.state;
 
-      if (monster.state === 'idle'   && dist < monster.aggroRange)             monster.state = 'chase';
-      if (monster.state === 'chase'  && dist <= monster.attackRange)           monster.state = 'attack';
-      if (monster.state === 'attack' && dist > monster.attackRange * 1.5)     monster.state = 'chase';
+      if (monster.state === 'idle'   && dist < monster.aggroRange)         monster.state = 'chase';
+      if (monster.state === 'chase'  && dist <= monster.attackRange)       monster.state = 'attack';
+      if (monster.state === 'attack' && dist > monster.attackRange * 1.5)  monster.state = 'chase';
 
       if (prevState !== monster.state && (monster.state === 'chase' || monster.state === 'attack')) {
         this._drawMonsterGraphic(monster.gfx, monster.color, true, monster.name);
@@ -1208,7 +1211,7 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  /* ────── Damage texts & particles ───────────────────────────────── */
+  /* ────── Damage texts & particles (stubs, used by future hooks) ──── */
   _updateDamageTexts(dt) {}
   _updateParticles(dt) {}
 
@@ -1238,8 +1241,8 @@ class GameScene extends Phaser.Scene {
         const worldH = MAP_TILES_H * TILE_SIZE;
         this.children.removeAll(true);
         this._monsterBarEls = {};
-        this.exitZones  = [];
-        this.monsters   = [];
+        this.exitZones   = [];
+        this.monsters    = [];
         this.projectiles = [];
         window.GameState.monstersAlive = [];
         const bars = document.getElementById('monster-bars');
